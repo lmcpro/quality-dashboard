@@ -317,54 +317,50 @@ def show_data_manager():
                     df_all.at[idx, '状态'] = '-'
 
             # 编辑表格（可编辑部分）
-            st.write("**在表格中直接编辑「漏测目标」和「当前漏测DI」**")
+            st.write("**在表格中直接编辑「漏测目标」和「当前漏测DI」，超标>0.1%自动标红**")
+
+            # 定义业务底色映射
+            business_colors = {
+                'G100老版本内核（含驱动HAS）': '#e3f2fd',  # 浅蓝
+                'G100 V5版本': '#f3e5f5',  # 浅紫
+                '重点项目': '#e8f5e9',  # 浅绿
+                '测试': '#fff3e0',  # 浅橙
+                '维优部': '#fce4ec',  # 浅粉
+                '技术开发部': '#e0f2f1',  # 浅青
+            }
+
+            def highlight_business(row):
+                """根据业务类型设置行底色"""
+                business = row.get('业务', '')
+                color = business_colors.get(business, '')
+                return [f'background-color: {color}' for _ in row]
+
+            def highlight_exceed_cell(val):
+                """超标百分比>0.1%标红"""
+                if isinstance(val, str) and '%' in val:
+                    try:
+                        num = float(val.replace('%', ''))
+                        if num > 0.1:
+                            return 'background-color: #ffcccc; color: #cc0000; font-weight: bold'
+                    except:
+                        pass
+                return ''
+
+            # 应用样式
+            styled_df = df_all.style\
+                .apply(highlight_business, axis=1)\
+                .applymap(highlight_exceed_cell, subset=['超标百分比'])
 
             edited_df = st.data_editor(
-                df_all,
+                styled_df,
                 column_config=column_config,
                 use_container_width=True,
                 hide_index=True,
-                key="editor_di_all"
+                key="editor_di_all",
+                height=600  # 设置高度确保一页展示
             )
 
-            # 超标标红显示（保存前预览）
-            if st.button("🧮 计算超标情况", type="secondary", use_container_width=True):
-                # 重新计算超标情况
-                result_df = edited_df.copy()
-
-                def highlight_exceed(val):
-                    """超标百分比>0.1%标红"""
-                    if isinstance(val, str) and '%' in val:
-                        try:
-                            num = float(val.replace('%', ''))
-                            if num > 0.1:
-                                return 'background-color: #ffcccc; color: #cc0000; font-weight: bold'
-                        except:
-                            pass
-                    return ''
-
-                # 计算更新后的值
-                for idx, row in result_df.iterrows():
-                    target = row.get('漏测目标', 0)
-                    actual = row.get('当前漏测DI', 0)
-                    expected = round(target * progress_ratio, 1) if target > 0 else 0
-                    result_df.at[idx, '预期漏测DI'] = expected
-                    if expected > 0:
-                        exceed_pct = (actual - expected) / expected * 100
-                        result_df.at[idx, '超标百分比'] = f"{exceed_pct:.0f}%"
-                        if exceed_pct > 0.1:
-                            result_df.at[idx, '状态'] = '🔴 超标'
-                        else:
-                            result_df.at[idx, '状态'] = '✅ 正常'
-                    else:
-                        result_df.at[idx, '超标百分比'] = 'N/A'
-                        result_df.at[idx, '状态'] = '-'
-
-                st.write("**计算结果（超标>0.1%标红）：**")
-                styled_df = result_df.style.applymap(highlight_exceed, subset=['超标百分比'])
-                st.dataframe(styled_df, use_container_width=True, hide_index=True)
-
-            st.caption("💡 编辑「漏测目标」和「当前漏测DI」后，点击「计算超标情况」查看标红结果，确认无误后点击「保存」")
+            st.caption("💡 直接编辑表格，业务列按类型着色，超标自动标红")
 
             if st.button("💾 保存漏测DI数据", type="primary", use_container_width=True):
                 # 解析编辑后的数据并更新到业务线
@@ -473,6 +469,107 @@ def show_data_manager():
             save_data_to_file(st.session_state.data)
             st.success("✅ 事故率数据已保存！")
             st.rerun()
+
+        st.divider()
+
+        # 事故明细列表
+        st.subheader("📋 事故明细")
+        st.caption("事故列表管理")
+
+        # 获取事故列表
+        if 'accidents' not in accident_rate:
+            accident_rate['accidents'] = []
+        accidents = accident_rate.get('accidents', [])
+
+        if accidents:
+            df_accidents = pd.DataFrame(accidents)
+            # 确保所有列都存在
+            for col in ['发生月份', '是否重点客户', '客户名称', '事故等级', '问题单号', '业务停机时长', '版本', '事故描述', '客户影响', '研发分析情况', '是否恢复']:
+                if col not in df_accidents.columns:
+                    df_accidents[col] = ''
+
+            accident_config = {
+                '发生月份': st.column_config.TextColumn('发生月份', width='small'),
+                '是否重点客户': st.column_config.SelectColumn('是否重点客户', options=['是', '否'], width='small'),
+                '客户名称': st.column_config.TextColumn('客户名称', width='medium'),
+                '事故等级': st.column_config.SelectColumn('事故等级', options=['P0', 'P1', 'P2', 'P3'], width='small'),
+                '问题单号': st.column_config.TextColumn('问题单号', width='small'),
+                '业务停机时长': st.column_config.NumberColumn('停机时长(分钟)', min_value=0, step=1, width='small'),
+                '版本': st.column_config.TextColumn('版本', width='small'),
+                '事故描述': st.column_config.TextColumn('事故描述', width='large'),
+                '客户影响': st.column_config.TextColumn('客户影响', width='medium'),
+                '研发分析情况': st.column_config.TextColumn('研发分析', width='medium'),
+                '是否恢复': st.column_config.SelectColumn('是否恢复', options=['已恢复', '处理中', '未恢复'], width='small'),
+            }
+
+            edited_accidents = st.data_editor(
+                df_accidents,
+                column_config=accident_config,
+                num_rows="dynamic",
+                use_container_width=True,
+                hide_index=True,
+                key="editor_accidents",
+                height=400
+            )
+
+            if st.button("💾 保存事故列表", type="primary", use_container_width=True):
+                accident_rate['accidents'] = edited_accidents.to_dict('records')
+                st.session_state.data['quality_work']['accident_rate'] = accident_rate
+                save_data_to_file(st.session_state.data)
+                st.success("✅ 事故列表已保存！")
+                st.rerun()
+        else:
+            st.info("暂无事故记录，请在下方添加")
+
+        st.divider()
+
+        # 新增事故表单
+        st.subheader("➕ 新增事故")
+        st.caption("填写事故信息并添加到列表")
+
+        with st.form("add_accident_form"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                new_month = st.text_input("发生月份", placeholder="如：2025-05")
+                new_customer = st.text_input("客户名称")
+                new_ticket = st.text_input("问题单号")
+            with col2:
+                new_is_key = st.selectbox("是否重点客户", ["是", "否"])
+                new_level = st.selectbox("事故等级", ["P0", "P1", "P2", "P3"])
+                new_version = st.text_input("版本", placeholder="如：E100 3.0.3")
+            with col3:
+                new_downtime = st.number_input("业务停机时长(分钟)", min_value=0, step=1)
+                new_recovered = st.selectbox("是否恢复", ["已恢复", "处理中", "未恢复"])
+
+            new_description = st.text_area("事故描述", placeholder="详细描述事故情况...")
+            new_impact = st.text_area("客户影响", placeholder="对客户业务的影响...")
+            new_analysis = st.text_area("研发分析情况", placeholder="研发侧的原因分析和解决方案...")
+
+            submitted = st.form_submit_button("➕ 添加到事故列表", use_container_width=True)
+
+            if submitted:
+                new_accident = {
+                    '发生月份': new_month,
+                    '是否重点客户': new_is_key,
+                    '客户名称': new_customer,
+                    '事故等级': new_level,
+                    '问题单号': new_ticket,
+                    '业务停机时长': new_downtime,
+                    '版本': new_version,
+                    '事故描述': new_description,
+                    '客户影响': new_impact,
+                    '研发分析情况': new_analysis,
+                    '是否恢复': new_recovered
+                }
+
+                if 'accidents' not in accident_rate:
+                    accident_rate['accidents'] = []
+                accident_rate['accidents'].append(new_accident)
+
+                st.session_state.data['quality_work']['accident_rate'] = accident_rate
+                save_data_to_file(st.session_state.data)
+                st.success("✅ 事故已添加！")
+                st.rerun()
 
     # ==================== 改进任务 ====================
     with tabs[3]:
