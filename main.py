@@ -111,15 +111,15 @@ with st.sidebar:
     st.image("https://img.icons8.com/color/96/000000/quality.png", width=80)
     st.title("质量可视化平台")
 
-    # 导航菜单 - 根据模式显示不同选项
-    menu_items = ["📊 质量工作", "🔧 质量改进", "📱 版本质量", "✅ QA事项", "🤖 AI智能分析", "📈 综合大盘"]
+    # 导航菜单 - 综合大盘放在第一位
+    menu_items = ["📈 综合大盘", "📊 质量工作", "🔧 质量改进", "📱 版本质量", "✅ QA事项", "🤖 AI智能分析"]
 
     # 只在编辑模式下显示数据管理
     if EDIT_MODE:
         menu_items.append("⚙️ 数据管理")
-        default_index = 5
+        default_index = 0
     else:
-        default_index = 5
+        default_index = 0
 
     selected_section = st.radio(
         "选择板块",
@@ -226,38 +226,194 @@ def show_dashboard(data):
 
     st.divider()
 
-    # 趋势图
+    # 第二行：现网问题和事故情况
+    st.subheader("📊 本周质量动态")
     col_left, col_right = st.columns(2)
 
     with col_left:
-        st.subheader("📉 质量指标趋势")
-        trend_df = qw_data['trend_data']
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=trend_df['month'], y=trend_df['defect_density'],
-            mode='lines+markers', name='缺陷密度'
-        ))
-        fig.add_trace(go.Scatter(
-            x=trend_df['month'], y=trend_df['test_coverage'],
-            mode='lines+markers', name='测试覆盖率'
-        ))
-        fig.add_trace(go.Scatter(
-            x=trend_df['month'], y=trend_df['automation_rate'],
-            mode='lines+markers', name='自动化率'
-        ))
-        fig.update_layout(height=350, template='plotly_white')
-        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("**🌐 现网问题概况**")
+        prod_issues = qw_data.get('production_issues', {})
+        issues_list = prod_issues.get('issues', [])
+
+        if issues_list:
+            # 获取最新周次
+            latest_week = max([i.get('周次', '') for i in issues_list], default='')
+            week_issues = [i for i in issues_list if i.get('周次') == latest_week]
+
+            if week_issues:
+                total = len(week_issues)
+                key_customer = len([i for i in week_issues if i.get('问题分类') == '重点客户问题'])
+                severe = len([i for i in week_issues if i.get('严重程度') == '严重'])
+                prod_env = len([i for i in week_issues if '生产' in i.get('环境', '') or '准生产' in i.get('环境', '')])
+
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    st.metric("新增问题", total)
+                with c2:
+                    st.metric("重点客户", key_customer)
+                with c3:
+                    st.metric("严重问题", severe)
+                with c4:
+                    st.metric("生产环境", prod_env)
+
+                # 重点客户列表
+                key_customers = {}
+                for i in week_issues:
+                    if i.get('问题分类') == '重点客户问题':
+                        cust = i.get('客户名称', '')
+                        if cust:
+                            key_customers[cust] = key_customers.get(cust, 0) + 1
+
+                if key_customers:
+                    st.caption(f"重点客户: {', '.join([f'{k}({v})' for k, v in key_customers.items()])}")
+            else:
+                st.info("暂无本周现网问题数据")
+        else:
+            st.info("暂无现网问题数据")
 
     with col_right:
-        st.subheader("🎯 本月改进任务进展")
-        improvement_data = data['quality_improvement']
-        tasks = improvement_data['ongoing_tasks']
+        st.markdown("**⚠️ 事故情况**")
+        accident_rate = qw_data.get('accident_rate', {})
+        accidents = accident_rate.get('accidents', [])
 
-        for task in tasks[:3]:
-            progress = task['progress']
-            st.write(f"**{task['name']}**")
-            st.progress(progress / 100)
-            st.caption(f"进度: {progress}% | 负责人: {task['owner']}")
+        if accidents:
+            # 获取本月事故
+            current_month = datetime.now().strftime('%Y-%m')
+            month_accidents = [a for a in accidents if current_month in a.get('发生月份', '')]
+
+            if month_accidents:
+                total_accidents = len(month_accidents)
+                p0_p1 = len([a for a in month_accidents if a.get('事故等级') in ['P0', 'P1']])
+                recovered = len([a for a in month_accidents if a.get('是否恢复') == '已恢复'])
+                total_downtime = sum([a.get('业务停机时长', 0) for a in month_accidents])
+
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    st.metric("本月事故", total_accidents)
+                with c2:
+                    st.metric("P0/P1事故", p0_p1)
+                with c3:
+                    st.metric("已恢复", recovered)
+                with c4:
+                    st.metric("停机时长", f"{total_downtime}分")
+
+                # 显示最近事故
+                recent = month_accidents[-1] if month_accidents else None
+                if recent:
+                    st.caption(f"最近: {recent.get('客户名称', '')} - {recent.get('事故等级', '')} - {recent.get('是否恢复', '')}")
+            else:
+                st.info("暂无本月事故数据")
+        else:
+            st.info("暂无事故数据")
+
+    # 事故汇总表
+    st.subheader("📋 事故明细汇总")
+    accident_rate = qw_data.get('accident_rate', {})
+    accidents = accident_rate.get('accidents', [])
+
+    if accidents:
+        # 获取本月事故
+        current_month = datetime.now().strftime('%Y-%m')
+        month_accidents = [a for a in accidents if current_month in a.get('发生月份', '')]
+
+        if month_accidents:
+            # 转换为DataFrame展示
+            df_accidents = pd.DataFrame(month_accidents)
+            display_cols = ['发生月份', '客户名称', '事故等级', '问题单号', '业务停机时长', '版本', '是否恢复', '事故定性']
+            available_cols = [c for c in display_cols if c in df_accidents.columns]
+            st.dataframe(df_accidents[available_cols], use_container_width=True, hide_index=True)
+        else:
+            st.info("暂无本月事故明细数据")
+    else:
+        st.info("暂无事故明细数据")
+
+    st.divider()
+
+    # 趋势图 - 三列布局
+    col_prod, col_trend, col_task = st.columns(3)
+
+    with col_prod:
+        st.subheader("📊 现网问题周趋势")
+        prod_trend = qw_data.get('production_issues_trend', [])
+        if prod_trend:
+            prod_trend_df = pd.DataFrame(prod_trend)
+            if not prod_trend_df.empty and '周次' in prod_trend_df.columns:
+                fig_prod = go.Figure()
+                fig_prod.add_trace(go.Scatter(
+                    x=prod_trend_df['周次'],
+                    y=prod_trend_df['问题数'],
+                    mode='lines+markers',
+                    name='问题数',
+                    line=dict(color='#ff6b6b', width=2),
+                    marker=dict(size=8)
+                ))
+                fig_prod.update_layout(
+                    height=350,
+                    template='plotly_white',
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    yaxis_title='问题数',
+                    xaxis_title='周次'
+                )
+                st.plotly_chart(fig_prod, use_container_width=True)
+
+                # 显示最新周数据
+                latest = prod_trend_df.iloc[-1] if not prod_trend_df.empty else None
+                if latest is not None:
+                    st.caption(f"最新: {latest.get('周次', '')} 新增 {latest.get('问题数', 0)} 个问题")
+            else:
+                st.info("暂无趋势数据")
+        else:
+            st.info("暂无现网问题趋势数据，请在数据管理中导入")
+
+    with col_trend:
+        st.subheader("📉 质量指标趋势")
+        trend_data = qw_data.get('trend_data', [])
+        if isinstance(trend_data, list):
+            trend_df = pd.DataFrame(trend_data)
+        else:
+            trend_df = trend_data
+
+        if not trend_df.empty and 'month' in trend_df.columns:
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=trend_df['month'], y=trend_df['defect_density'],
+                mode='lines+markers', name='缺陷密度'
+            ))
+            fig.add_trace(go.Scatter(
+                x=trend_df['month'], y=trend_df['test_coverage'],
+                mode='lines+markers', name='测试覆盖率'
+            ))
+            fig.add_trace(go.Scatter(
+                x=trend_df['month'], y=trend_df['automation_rate'],
+                mode='lines+markers', name='自动化率'
+            ))
+            fig.update_layout(height=350, template='plotly_white')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("暂无趋势数据")
+
+    with col_task:
+        st.subheader("🎯 TOP质量事项进展")
+        qi_data = data.get('quality_improvement', {})
+        top_issues = qi_data.get('top_issues', {})
+
+        if isinstance(top_issues, dict) and top_issues:
+            # 获取汇总表数据
+            summary = top_issues.get('summary', [])
+            if summary:
+                for item in summary[:3]:
+                    st.write(f"**{item.get('事项名称', '')}**")
+                    progress_str = item.get('当前进度', '0%').replace('%', '')
+                    try:
+                        progress = int(progress_str)
+                    except:
+                        progress = 0
+                    st.progress(progress / 100)
+                    st.caption(f"进度: {item.get('当前进度', '0%')} | 负责人: {item.get('负责人', '')}")
+            else:
+                st.info("暂无TOP事项数据")
+        else:
+            st.info("暂无TOP事项数据")
 
     st.divider()
 
@@ -274,18 +430,18 @@ def show_dashboard(data):
 # 根据选择显示不同板块
 data = st.session_state.data
 
-if selected_section == "📊 质量工作":
+if selected_section == "📈 综合大盘":
+    show_dashboard(data)
+elif selected_section == "📊 质量工作":
     show_quality_work(data['quality_work'])
 elif selected_section == "🔧 质量改进":
-    show_quality_improvement(data['quality_improvement'])
+    show_quality_improvement(data['quality_improvement'], data.get('quality_work', {}))
 elif selected_section == "📱 版本质量":
     show_version_quality()
 elif selected_section == "✅ QA事项":
     show_qa_items(data['qa_items'])
 elif selected_section == "🤖 AI智能分析":
     show_ai_insights(data, st.session_state.ai_analyzer)
-elif selected_section == "📈 综合大盘":
-    show_dashboard(data)
 elif selected_section == "⚙️ 数据管理":
     show_data_manager()
 
