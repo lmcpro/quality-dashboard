@@ -933,698 +933,382 @@ def show_data_manager():
                 st.success(f"✅ TOP事项「{top_name}」已创建！")
                 st.rerun()
 
+
     # ==================== 现网问题 ====================
     with tabs[4]:
         st.subheader("🌐 现网问题管理")
-        st.caption("每周登记现网问题，支持批量导入和自动汇总分析")
+        st.caption("批量导入、按周管理现网问题，支持举一反三登记")
 
         qw_data = data.get('quality_work', {})
         if 'production_issues' not in qw_data:
-            qw_data['production_issues'] = {}
+            qw_data['production_issues'] = {'issues': []}
         prod_issues = qw_data['production_issues']
+        issues_list = prod_issues.get('issues', [])
 
-        # 周次选择
-        col1, col2 = st.columns([1, 3])
-        with col1:
-            current_week = datetime.now().strftime('%Y-W%W')
-            week_input = st.text_input("周次", value=prod_issues.get('current_week', current_week), help="格式: YYYY-WW")
-        with col2:
-            st.caption("💡 支持从Excel复制粘贴批量导入，也可逐行添加")
+        # ========== 1. 批量导入 ==========
+        st.markdown("#### 📥 批量导入")
+        with st.expander("从Excel复制粘贴导入", expanded=True):
+            st.caption("从Excel复制数据，粘贴到下方文本框，格式：产品线 | 问题分类 | 客户名称 | 严重程度 | 环境 | 版本 | 问题描述 | 状态 | 举一反三")
+            
+            col_paste, col_week = st.columns([3, 1])
+            with col_paste:
+                paste_data = st.text_area("粘贴数据", height=120, key="prod_issues_paste", 
+                                         placeholder="产品线\t问题分类\t客户名称\t严重程度\t环境\t版本\t问题描述\t状态\t举一反三")
+            with col_week:
+                current_week = f"W{datetime.now().isocalendar()[1]}"
+                week_input = st.text_input("周次", value=current_week, key="prod_issues_week")
+                st.caption("格式：W18")
 
-        # 批量导入区域
-        st.markdown("**📋 批量导入（从Excel复制粘贴）**")
-        bulk_input = st.text_area(
-            "粘贴数据",
-            placeholder="从Excel复制数据，格式：产品线\t问题分类\t客户名称\t严重程度\t缺陷ID\t环境\t版本\t缺陷描述\t客户影响\t状态",
-            height=150,
-            help="复制Excel表格内容，直接粘贴到这里，支持制表符分隔"
-        )
+            if st.button("📥 解析并导入", type="primary", key="btn_parse_import"):
+                if paste_data.strip():
+                    lines = paste_data.strip().split('\n')
+                    imported_count = 0
+                    for line in lines:
+                        parts = line.split('\t')
+                        if len(parts) >= 8:
+                            issue = {
+                                '周次': week_input.upper(),
+                                '产品线': parts[0].strip(),
+                                '问题分类': parts[1].strip(),
+                                '客户名称': parts[2].strip(),
+                                '严重程度': parts[3].strip(),
+                                '环境': parts[4].strip(),
+                                '版本': parts[5].strip(),
+                                '问题描述': parts[6].strip(),
+                                '状态': parts[7].strip() if len(parts) > 7 else '待处理',
+                                '举一反三': parts[8].strip() == '是' if len(parts) > 8 else False,
+                                '登记时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            }
+                            issues_list.append(issue)
+                            imported_count += 1
 
-        if st.button("📥 解析并导入数据", type="primary", use_container_width=True):
-            if bulk_input.strip():
-                lines = bulk_input.strip().split('\n')
-                imported_count = 0
-                last_product_line = ''  # 记录上一行的产品线，用于合并单元格情况
-                for line in lines:
-                    parts = line.split('\t')
-                    if len(parts) >= 8:
-                        # 解析产品线（处理合并单元格：空值沿用上一行）
-                        product_line = parts[0].strip()
-                        if product_line:
-                            last_product_line = product_line
-                        else:
-                            product_line = last_product_line if last_product_line else '未分类'
+                    qw_data['production_issues'] = prod_issues
+                    st.session_state.data['quality_work'] = qw_data
+                    save_data_to_file(st.session_state.data)
+                    st.success(f"✅ 成功导入 {imported_count} 条现网问题到 {week_input.upper()}！")
+                    st.rerun()
+                else:
+                    st.warning("请先粘贴数据")
 
-                        # 解析问题分类（第二列，处理合并单元格）
-                        category = parts[1].strip()
-                        if not category:
-                            category = last_category if 'last_category' in locals() else '非重点客户一般问题'
-                        else:
-                            last_category = category
-
-                        # 解析客户名称（第三列）
-                        customer = parts[2].strip() if len(parts) > 2 else ''
-
-                        # 解析严重程度（第四列）
-                        severity = parts[3].strip() if len(parts) > 3 else '一般'
-
-                        # 解析缺陷ID（第五列）
-                        defect_id = parts[4].strip() if len(parts) > 4 else ''
-
-                        # 解析环境（第六列）
-                        env = parts[5].strip() if len(parts) > 5 else ''
-
-                        # 解析版本（第七列）
-                        version = parts[6].strip() if len(parts) > 6 else ''
-
-                        # 解析缺陷描述（第八列）
-                        description = parts[7].strip() if len(parts) > 7 else ''
-
-                        # 解析客户影响（第九列）
-                        impact = parts[8].strip() if len(parts) > 8 else ''
-
-                        # 解析状态（第十列）
-                        status = parts[9].strip() if len(parts) > 9 else '处理中'
-
-                        # 创建问题记录
-                        issue = {
-                            '产品线': product_line,
-                            '问题分类': category,
-                            '客户名称': customer,
-                            '严重程度': severity,
-                            '缺陷ID': defect_id,
-                            '环境': env,
-                            '版本': version,
-                            '缺陷描述': description,
-                            '客户影响': impact,
-                            '状态': status,
-                            '周次': week_input,
-                            '举一反三': False  # 是否已进行举一反三
-                        }
-
-                        if 'issues' not in prod_issues:
-                            prod_issues['issues'] = []
-                        prod_issues['issues'].append(issue)
-                        imported_count += 1
-
-                prod_issues['current_week'] = week_input
-                st.session_state.data['quality_work']['production_issues'] = prod_issues
-                save_data_to_file(st.session_state.data)
-                st.success(f"✅ 成功导入 {imported_count} 条现网问题！")
-                st.rerun()
-            else:
-                st.warning("请先粘贴数据")
-
-        st.divider()
-
-        # 显示所有现网问题（按周筛选）
-        st.markdown("**📊 所有现网问题列表（按周筛选）**")
-
-        # 获取所有周次列表
-        def extract_week_num(week_str):
-            """提取周次数字用于排序"""
-            import re
-            match = re.search(r'W(\d+)', week_str)
-            if match:
-                return int(match.group(1))
-            return 0
-
-        all_weeks = sorted(
-            list(set([i.get('周次', '') for i in prod_issues.get('issues', []) if i.get('周次', '')])),
-            key=extract_week_num
-        )
+        # ========== 2. 刚导入的问题列表（按周筛选、可编辑） ==========
+        st.markdown("#### 📊 问题列表（按周筛选编辑）")
+        
+        # 获取所有周次并排序
+        all_weeks = sorted(list(set([i.get('周次', '') for i in issues_list if i.get('周次', '')])), key=lambda x: x)
 
         if all_weeks:
-            # 使用session_state来保持周次选择同步
-            if 'selected_week' not in st.session_state:
-                st.session_state.selected_week = week_input
+            # 使用列布局：周次选择 + 统计卡片
+            col_week_select, col_stats = st.columns([1, 3])
+            
+            with col_week_select:
+                selected_week = st.selectbox("选择周次", all_weeks, key="week_select")
+            
+            # 筛选该周的问题
+            week_issues = [i for i in issues_list if i.get('周次') == selected_week]
+            
+            with col_stats:
+                if week_issues:
+                    total = len(week_issues)
+                    key_customer = len([i for i in week_issues if i.get('问题分类') == '重点客户问题'])
+                    severe = len([i for i in week_issues if i.get('严重程度') == '严重'])
+                    fanyi = len([i for i in week_issues if i.get('举一反三', False)])
+                    
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("问题总数", total)
+                    c2.metric("重点客户", key_customer)
+                    c3.metric("严重问题", severe)
+                    c4.metric("需举一反三", fanyi)
+            
+            if week_issues:
+                df_week = pd.DataFrame(week_issues)
 
-            # 如果week_input改变，更新selected_week
-            if week_input != st.session_state.selected_week and week_input in all_weeks:
-                st.session_state.selected_week = week_input
-
-            selected_week = st.selectbox(
-                "选择周次",
-                options=all_weeks,
-                index=all_weeks.index(st.session_state.selected_week) if st.session_state.selected_week in all_weeks else len(all_weeks)-1,
-                key='week_selector'
-            )
-
-            # 同步到session_state
-            st.session_state.selected_week = selected_week
-
-            # 显示该周统计
-            week_issues_all = [i for i in prod_issues['issues'] if i.get('周次') == selected_week]
-            if week_issues_all:
-                st.caption(f"{selected_week} 共 {len(week_issues_all)} 个问题")
-
-            if week_issues_all:
-                df_issues = pd.DataFrame(week_issues_all)
-
-                # 列配置
-                issue_config = {
-                    '产品线': st.column_config.TextColumn('产品线', width='small'),
-                    '问题分类': st.column_config.TextColumn('问题分类', width='medium'),
-                    '客户名称': st.column_config.TextColumn('客户名称', width='small'),
-                    '严重程度': st.column_config.TextColumn('严重程度', width='small', help='严重/一般/提示'),
-                    '缺陷ID': st.column_config.TextColumn('缺陷ID', width='small'),
-                    '环境': st.column_config.TextColumn('环境', width='small', help='生产/准生产/测试/POC'),
+                # 定义列配置
+                column_config = {
+                    '周次': st.column_config.TextColumn('周次', width='small'),
+                    '产品线': st.column_config.TextColumn('产品线', width='medium'),
+                    '问题分类': st.column_config.SelectboxColumn('问题分类', options=['重点客户问题', '一般问题', '内部问题'], width='medium'),
+                    '客户名称': st.column_config.TextColumn('客户名称', width='medium'),
+                    '严重程度': st.column_config.SelectboxColumn('严重程度', options=['严重', '一般', '轻微'], width='small'),
+                    '环境': st.column_config.SelectboxColumn('环境', options=['生产环境', '准生产环境', '测试环境', '开发环境'], width='small'),
                     '版本': st.column_config.TextColumn('版本', width='small'),
-                    '缺陷描述': st.column_config.TextColumn('缺陷描述', width='large'),
-                    '客户影响': st.column_config.TextColumn('客户影响', width='medium'),
-                    '状态': st.column_config.TextColumn('状态', width='small', help='处理中/已解决/已闭环'),
+                    '问题描述': st.column_config.TextColumn('问题描述', width='large'),
+                    '状态': st.column_config.SelectboxColumn('状态', options=['待处理', '处理中', '已解决', '已关闭'], width='small'),
                     '举一反三': st.column_config.CheckboxColumn('举一反三', width='small'),
                 }
 
-                edited_issues = st.data_editor(
-                    df_issues,
-                    column_config=issue_config,
+                edited_df = st.data_editor(
+                    df_week,
+                    column_config=column_config,
                     num_rows="dynamic",
                     use_container_width=True,
                     hide_index=True,
-                    key="editor_production_issues",
-                    height=400
+                    key=f"editor_week_issues_{selected_week}"
                 )
 
-                col_save, col_delete = st.columns(2)
+                col_save, col_del = st.columns([1, 4])
                 with col_save:
-                    if st.button("💾 保存现网问题", type="primary", use_container_width=True):
-                        # 更新所有问题（保留其他周次的数据）
-                        other_week_issues = [i for i in prod_issues['issues'] if i.get('周次') != selected_week]
-                        prod_issues['issues'] = other_week_issues + edited_issues.to_dict('records')
-                        st.session_state.data['quality_work']['production_issues'] = prod_issues
+                    if st.button("💾 保存修改", type="primary", key=f"btn_save_week_{selected_week}"):
+                        other_issues = [i for i in issues_list if i.get('周次') != selected_week]
+                        updated_issues = edited_df.to_dict('records')
+                        issues_list = other_issues + updated_issues
+                        prod_issues['issues'] = issues_list
+                        qw_data['production_issues'] = prod_issues
+                        st.session_state.data['quality_work'] = qw_data
                         save_data_to_file(st.session_state.data)
-                        st.success("✅ 现网问题已保存！")
+                        st.success("✅ 已保存！")
                         st.rerun()
 
-                with col_delete:
-                    if st.button("🗑️ 清空该周数据", use_container_width=True):
-                        other_week_issues = [i for i in prod_issues['issues'] if i.get('周次') != selected_week]
-                        prod_issues['issues'] = other_week_issues
-                        st.session_state.data['quality_work']['production_issues'] = prod_issues
+                with col_del:
+                    if st.button("🗑️ 删除本周所有数据", key=f"btn_del_week_{selected_week}"):
+                        other_issues = [i for i in issues_list if i.get('周次') != selected_week]
+                        prod_issues['issues'] = other_issues
+                        qw_data['production_issues'] = prod_issues
+                        st.session_state.data['quality_work'] = qw_data
                         save_data_to_file(st.session_state.data)
-                        st.success(f"✅ {selected_week} 数据已清空！")
+                        st.success("✅ 本周数据已删除！")
                         st.rerun()
-        else:
-            st.info("暂无现网问题数据，请通过上方批量导入")
-
-        st.divider()
-
-        # 自动汇总分析
-        st.markdown("**📈 自动汇总分析**")
-
-        if 'issues' in prod_issues and prod_issues['issues']:
-            # 默认使用当前输入的周次进行分析
-            analysis_week = week_input
-            week_issues_analysis = [i for i in prod_issues['issues'] if i.get('周次') == analysis_week]
-
-            if week_issues_analysis:
-                df_analysis = pd.DataFrame(week_issues_analysis)
-
-                # 统计指标
-                total = len(week_issues_analysis)
-                key_customer_issues = len([i for i in week_issues_analysis if i.get('问题分类', '') == '重点客户问题'])
-                severe_issues = len([i for i in week_issues_analysis if i.get('严重程度') == '严重'])
-
-                # 环境分布
-                env_dist = {}
-                for i in week_issues_analysis:
-                    env = i.get('环境', '未知')
-                    if '生产' in env or '准生产' in env:
-                        env_dist['生产/准生产'] = env_dist.get('生产/准生产', 0) + 1
-                    else:
-                        env_dist['测试/其他'] = env_dist.get('测试/其他', 0) + 1
-
-                # 重点客户列表
-                key_customers = {}
-                for i in week_issues_analysis:
-                    if i.get('问题分类', '') == '重点客户问题':
-                        cust = i.get('客户名称', '')
-                        if cust:
-                            key_customers[cust] = key_customers.get(cust, 0) + 1
-
-                # 显示统计卡片
-                stat_cols = st.columns(4)
-                with stat_cols[0]:
-                    st.metric("新增问题总数", total)
-                with stat_cols[1]:
-                    st.metric("重点客户问题", key_customer_issues)
-                with stat_cols[2]:
-                    st.metric("严重问题", severe_issues)
-                with stat_cols[3]:
-                    st.metric("生产/准生产环境", env_dist.get('生产/准生产', 0))
-
-                # 生成分析报告
-                st.markdown("**📝 客户问题分析报告**")
-                report = f"""客户问题分析{analysis_week.replace('-', '')}：
-1、新增{total}个现网问题，{key_customer_issues}个重点客户问题，{severe_issues}个严重问题
-2、重点客户涉及{len(key_customers)}个：{', '.join([f"{k}({v})" for k, v in key_customers.items()])}
-3、环境分布：测试环境{env_dist.get('测试/其他', 0)}个，生产/准生产环境{env_dist.get('生产/准生产', 0)}个
-"""
-                st.code(report, language=None)
-
-                # 下载报告按钮
-                st.download_button(
-                    label="📄 下载分析报告",
-                    data=report,
-                    file_name=f"客户问题分析_{analysis_week}.txt",
-                    mime="text/plain"
-                )
-
-                # 可视化图表
-                chart_cols = st.columns(2)
-                with chart_cols[0]:
-                    # 产品线分布
-                    if '产品线' in df_analysis.columns:
-                        product_dist = df_analysis['产品线'].value_counts()
-                        fig = px.pie(
-                            values=product_dist.values,
-                            names=product_dist.index,
-                            title="产品线分布"
-                        )
-                        fig.update_layout(height=250)
-                        st.plotly_chart(fig, use_container_width=True)
-
-                with chart_cols[1]:
-                    # 严重程度分布
-                    if '严重程度' in df_analysis.columns:
-                        severity_dist = df_analysis['严重程度'].value_counts()
-                        fig = px.bar(
-                            x=severity_dist.index,
-                            y=severity_dist.values,
-                            title="严重程度分布",
-                            color=severity_dist.values,
-                            color_continuous_scale=['#1dd1a1', '#feca57', '#ff6b6b']
-                        )
-                        fig.update_layout(height=250, showlegend=False)
-                        st.plotly_chart(fig, use_container_width=True)
-
-                st.success(f"✅ {analysis_week} 数据分析完成")
             else:
-                st.info(f"暂无 {analysis_week} 的数据可供分析")
+                st.info(f"{selected_week} 暂无数据")
         else:
-            st.info("暂无数据可供分析")
+            st.info("暂无现网问题数据，请使用上方批量导入功能添加")
 
-        st.divider()
+        # ========== 3. 自动汇总分析 ==========
+        st.markdown("#### 📈 自动汇总分析")
+        
+        if issues_list:
+            # 统计各周数据
+            week_stats = {}
+            for issue in issues_list:
+                week = issue.get('周次', '未知')
+                if week not in week_stats:
+                    week_stats[week] = {
+                        'total': 0, 'key_customer': 0, 'severe': 0,
+                        'prod_env': 0, 'fanyi': 0, 'customers': set()
+                    }
+                week_stats[week]['total'] += 1
+                if issue.get('问题分类') == '重点客户问题':
+                    week_stats[week]['key_customer'] += 1
+                if issue.get('严重程度') == '严重':
+                    week_stats[week]['severe'] += 1
+                if '生产' in issue.get('环境', '') or '准生产' in issue.get('环境', ''):
+                    week_stats[week]['prod_env'] += 1
+                if issue.get('举一反三', False):
+                    week_stats[week]['fanyi'] += 1
+                if issue.get('客户名称'):
+                    week_stats[week]['customers'].add(issue.get('客户名称'))
 
-        # 举一反三录入
-        st.markdown("**💡 举一反三录入**")
-        st.caption("登记需要进行举一反三的问题")
+            # 统计卡片
+            total_issues = sum(s['total'] for s in week_stats.values())
+            total_key = sum(s['key_customer'] for s in week_stats.values())
+            total_severe = sum(s['severe'] for s in week_stats.values())
+            total_fanyi = sum(s['fanyi'] for s in week_stats.values())
+            
+            col1, col2, col3, col4, col5 = st.columns(5)
+            col1.metric("📊 问题总数", total_issues)
+            col2.metric("👥 重点客户问题", total_key)
+            col3.metric("🔴 严重问题", total_severe)
+            col4.metric("💡 需举一反三", total_fanyi)
+            col5.metric("📅 统计周数", len(week_stats))
 
-        # 获取所有已登记的问题（用于选择）
-        all_issues_fanyi = prod_issues.get('issues', [])
+            # 图表展示
+            chart_col1, chart_col2 = st.columns(2)
+            
+            with chart_col1:
+                # 产品线分布
+                product_lines = {}
+                for issue in issues_list:
+                    pl = issue.get('产品线', '未知')
+                    product_lines[pl] = product_lines.get(pl, 0) + 1
 
-        if all_issues_fanyi:
-            # 构建缺陷ID列表（包含描述信息）
-            defect_options = []
-            defect_map = {}
-            for issue in all_issues_fanyi:
-                defect_id = issue.get('缺陷ID', '')
-                desc = issue.get('缺陷描述', '')[:30] + '...' if len(issue.get('缺陷描述', '')) > 30 else issue.get('缺陷描述', '')
-                week = issue.get('周次', '')
-                if defect_id:
-                    option_label = f"{defect_id} | {week} | {desc}"
-                    defect_options.append(option_label)
-                    defect_map[option_label] = defect_id
-
-            # 选择缺陷ID
-            selected_defect_label = st.selectbox("选择缺陷", options=defect_options, key="fanyi_defect_select")
-            selected_defect_id = defect_map.get(selected_defect_label, '')
-
-            # 获取选中的问题详情
-            selected_issue = None
-            for issue in all_issues_fanyi:
-                if issue.get('缺陷ID') == selected_defect_id:
-                    selected_issue = issue
-                    break
-
-            if selected_issue:
-                st.caption(f"缺陷ID: {selected_defect_id}")
-
-                # 显示当前举一反三状态
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    current_status = selected_issue.get('举一反三状态', '未开始')
-                    new_status = st.selectbox("举一反三状态", ["未开始", "进行中", "已完成"], index=["未开始", "进行中", "已完成"].index(current_status) if current_status in ["未开始", "进行中", "已完成"] else 0)
-                with col2:
-                    current_root = selected_issue.get('根因分类', '代码缺陷')
-                    root_options = ["代码缺陷", "设计缺陷", "配置问题", "环境问题", "需求问题", "测试遗漏", "其他"]
-                    new_root = st.selectbox("根因分类", root_options, index=root_options.index(current_root) if current_root in root_options else 0)
-                with col3:
-                    is_fanyi = st.checkbox("需要举一反三", value=selected_issue.get('举一反三', False))
-
-                new_measure = st.text_area("改进措施", value=selected_issue.get('改进措施', ''), height=100)
-
-                if st.button("💾 保存举一反三信息", type="primary", use_container_width=True):
-                    # 更新原始数据
-                    for issue in prod_issues['issues']:
-                        if issue.get('缺陷ID') == selected_defect_id:
-                            issue['举一反三'] = is_fanyi
-                            issue['举一反三状态'] = new_status
-                            issue['根因分类'] = new_root
-                            issue['改进措施'] = new_measure
-                            break
-
-                    st.session_state.data['quality_work']['production_issues'] = prod_issues
-                    save_data_to_file(st.session_state.data)
-                    st.success("✅ 举一反三信息已保存！")
-                    st.rerun()
-
-            # 显示所有已标记举一反三的问题列表
-            st.divider()
-            st.markdown("**📋 已登记举一反三的问题列表**")
-            fanyi_issues = [i for i in all_issues_fanyi if i.get('举一反三', False)]
-
-            if fanyi_issues:
-                df_fanyi_list = pd.DataFrame(fanyi_issues)
-                display_cols = ['缺陷ID', '周次', '客户名称', '缺陷描述', '举一反三状态', '根因分类']
-                available_cols = [c for c in display_cols if c in df_fanyi_list.columns]
-                st.dataframe(df_fanyi_list[available_cols], use_container_width=True, hide_index=True)
-            else:
-                st.info("暂无已登记举一反三的问题")
-        else:
-            st.info("暂无现网问题数据，请先导入数据")
-
-        st.divider()
-
-        # 周趋势图
-        st.markdown("**📊 现网问题周趋势**")
-
-        if 'issues' in prod_issues and prod_issues['issues']:
-            week_issues = [i for i in prod_issues['issues'] if i.get('周次') == week_input]
-
-            if week_issues:
-                df_analysis = pd.DataFrame(week_issues)
-
-                # 统计指标
-                total = len(week_issues)
-                # 只统计"重点客户问题"类别，不包括"非重点客户严重问题"
-                key_customer_issues = len([i for i in week_issues if i.get('问题分类', '') == '重点客户问题'])
-                severe_issues = len([i for i in week_issues if i.get('严重程度') == '严重'])
-
-                # 环境分布
-                env_dist = {}
-                for i in week_issues:
-                    env = i.get('环境', '未知')
-                    if '生产' in env or '准生产' in env:
-                        env_dist['生产/准生产'] = env_dist.get('生产/准生产', 0) + 1
-                    else:
-                        env_dist['测试/其他'] = env_dist.get('测试/其他', 0) + 1
-
-                # 重点客户列表（只统计"重点客户问题"类别）
-                key_customers = {}
-                for i in week_issues:
-                    if i.get('问题分类', '') == '重点客户问题':
-                        cust = i.get('客户名称', '')
-                        if cust:
-                            key_customers[cust] = key_customers.get(cust, 0) + 1
-
-                # 显示统计卡片
-                stat_cols = st.columns(4)
-                with stat_cols[0]:
-                    st.metric("新增问题总数", total)
-                with stat_cols[1]:
-                    st.metric("重点客户问题", key_customer_issues)
-                with stat_cols[2]:
-                    st.metric("严重问题", severe_issues)
-                with stat_cols[3]:
-                    prod_env_count = env_dist.get('生产/准生产', 0)
-                    st.metric("生产/准生产环境", prod_env_count)
-
-                # 生成分析报告
-                st.markdown("**📝 客户问题分析报告**")
-
-                report = f"""客户问题分析{week_input.replace('-', '')}：
-1、新增{total}个现网问题，{key_customer_issues}个重点客户问题，{severe_issues}个严重问题
-2、重点客户涉及{len(key_customers)}个：{', '.join([f"{k}({v})" for k, v in key_customers.items()])}
-3、环境分布：测试环境{env_dist.get('测试/其他', 0)}个，生产/准生产环境{env_dist.get('生产/准生产', 0)}个
-"""
-
-                st.code(report, language=None)
-
-                # 下载报告按钮
-                st.download_button(
-                    label="📄 下载分析报告",
-                    data=report,
-                    file_name=f"客户问题分析_{week_input}.txt",
-                    mime="text/plain",
-                    key=f"download_report_{week_input}"
-                )
-
-                # 可视化图表
-                chart_cols = st.columns(2)
-                with chart_cols[0]:
-                    # 产品线分布
-                    product_dist = df_analysis['产品线'].value_counts()
-                    fig = px.pie(
-                        values=product_dist.values,
-                        names=product_dist.index,
+                if product_lines:
+                    fig_pl = px.pie(
+                        values=list(product_lines.values()),
+                        names=list(product_lines.keys()),
                         title="产品线分布"
                     )
-                    fig.update_layout(height=250)
-                    st.plotly_chart(fig, use_container_width=True)
+                    fig_pl.update_layout(height=280, showlegend=True)
+                    st.plotly_chart(fig_pl, use_container_width=True, key="chart_pl_dist")
+            
+            with chart_col2:
+                # 严重程度分布
+                severity_dist = {}
+                for issue in issues_list:
+                    sev = issue.get('严重程度', '未知')
+                    severity_dist[sev] = severity_dist.get(sev, 0) + 1
 
-                with chart_cols[1]:
-                    # 严重程度分布
-                    severity_dist = df_analysis['严重程度'].value_counts()
-                    fig = px.bar(
-                        x=severity_dist.index,
-                        y=severity_dist.values,
+                if severity_dist:
+                    fig_sev = px.bar(
+                        x=list(severity_dist.keys()),
+                        y=list(severity_dist.values()),
                         title="严重程度分布",
-                        color=severity_dist.values,
-                        color_continuous_scale=['#1dd1a1', '#feca57', '#ff6b6b']
+                        color=list(severity_dist.keys()),
+                        color_discrete_map={'严重': '#ff6b6b', '一般': '#feca57', '轻微': '#1dd1a1'}
                     )
-                    fig.update_layout(height=250, showlegend=False)
-                    st.plotly_chart(fig, use_container_width=True)
-
-                # 周趋势图
-                st.markdown("**📊 现网问题周趋势**")
-                if 'issues' in prod_issues and prod_issues['issues']:
-                    # 按周统计
-                    week_stats = {}
-                    for issue in prod_issues['issues']:
-                        week = issue.get('周次', '')
-                        if week:
-                            week_stats[week] = week_stats.get(week, 0) + 1
-
-                    if week_stats:
-                        # 排序周次（处理合并周次如 W7&8）
-                        def extract_week_num(week_str):
-                            """提取周次数字用于排序"""
-                            import re
-                            # 匹配 W 后面的数字
-                            match = re.search(r'W(\d+)', week_str)
-                            if match:
-                                return int(match.group(1))
-                            return 0
-
-                        sorted_weeks = sorted(week_stats.keys(), key=extract_week_num)
-                        trend_df = pd.DataFrame({
-                            '周次': sorted_weeks,
-                            '问题数': [week_stats[w] for w in sorted_weeks]
-                        })
-
-                        fig_trend = px.line(
-                            trend_df,
-                            x='周次',
-                            y='问题数',
-                            title='现网问题周趋势',
-                            markers=True
-                        )
-                        fig_trend.update_layout(height=300, template='plotly_white')
-                        st.plotly_chart(fig_trend, use_container_width=True)
-
-                        # 保存趋势数据到全局
-                        qw_data['production_issues_trend'] = trend_df.to_dict('records')
-                        st.session_state.data['quality_work'] = qw_data
-
-                # 所有问题的分布图
-                st.markdown("**📊 所有问题分布分析**")
-
-                # 获取所有问题数据
-                all_issues = prod_issues['issues']
-                if all_issues:
-                    df_all = pd.DataFrame(all_issues)
-
-                    chart_cols = st.columns(2)
-                    with chart_cols[0]:
-                        # 产品线分布
-                        if '产品线' in df_all.columns:
-                            product_dist = df_all['产品线'].value_counts()
-                            fig_product = px.pie(
-                                values=product_dist.values,
-                                names=product_dist.index,
-                                title="产品线分布"
-                            )
-                            fig_product.update_layout(height=300)
-                            st.plotly_chart(fig_product, use_container_width=True)
-
-                    with chart_cols[1]:
-                        # 严重程度分布
-                        if '严重程度' in df_all.columns:
-                            severity_dist = df_all['严重程度'].value_counts()
-                            fig_severity = px.bar(
-                                x=severity_dist.index,
-                                y=severity_dist.values,
-                                title="严重程度分布",
-                                color=severity_dist.values,
-                                color_continuous_scale=['#1dd1a1', '#feca57', '#ff6b6b']
-                            )
-                            fig_severity.update_layout(height=300, showlegend=False)
-                            st.plotly_chart(fig_severity, use_container_width=True)
-
-                    # 问题分类分布
-                    if '问题分类' in df_all.columns:
-                        category_dist = df_all['问题分类'].value_counts()
-                        fig_category = px.bar(
-                            x=category_dist.index,
-                            y=category_dist.values,
-                            title="问题分类分布",
-                            color=category_dist.values,
-                            color_continuous_scale=['#3498db', '#2ecc71', '#e74c3c']
-                        )
-                        fig_category.update_layout(height=300, showlegend=False)
-                        st.plotly_chart(fig_category, use_container_width=True)
-
-                # 按周汇总表（可编辑）
-                st.markdown("**📋 按周汇总表（可编辑）**")
-                st.caption("所有周次的现网问题汇总，可直接编辑纠正数据")
-
-                # 按周统计详细信息
-                week_summary = {}
-                for issue in prod_issues['issues']:
-                    week = issue.get('周次', '')
-                    if week:
-                        if week not in week_summary:
-                            week_summary[week] = {
-                                '周次': week,
-                                '总问题数': 0,
-                                '重点客户问题': 0,
-                                '严重问题': 0,
-                                '生产环境问题': 0,
-                                '需举一反三': 0
-                            }
-                        week_summary[week]['总问题数'] += 1
-                        if issue.get('问题分类') == '重点客户问题':
-                            week_summary[week]['重点客户问题'] += 1
-                        if issue.get('严重程度') == '严重':
-                            week_summary[week]['严重问题'] += 1
-                        if '生产' in issue.get('环境', '') or '准生产' in issue.get('环境', ''):
-                            week_summary[week]['生产环境问题'] += 1
-                        if issue.get('举一反三', False):
-                            week_summary[week]['需举一反三'] += 1
-
-                if week_summary:
-                    # 转换为DataFrame并排序（使用周次数字排序）
-                    summary_df = pd.DataFrame(list(week_summary.values()))
-                    summary_df['排序'] = summary_df['周次'].apply(extract_week_num)
-                    summary_df = summary_df.sort_values('排序').drop('排序', axis=1)
-
-                    # 可编辑的汇总表
-                    edited_summary = st.data_editor(
-                        summary_df,
-                        column_config={
-                            '周次': st.column_config.TextColumn('周次', width='small', disabled=True),
-                            '总问题数': st.column_config.NumberColumn('总问题数', width='small'),
-                            '重点客户问题': st.column_config.NumberColumn('重点客户', width='small'),
-                            '严重问题': st.column_config.NumberColumn('严重问题', width='small'),
-                            '生产环境问题': st.column_config.NumberColumn('生产环境', width='small'),
-                            '需举一反三': st.column_config.NumberColumn('需举一反三', width='small'),
-                        },
-                        use_container_width=True,
-                        hide_index=True,
-                        key="editor_week_summary"
-                    )
-
-                    if st.button("💾 保存汇总修改", type="primary", use_container_width=True):
-                        st.success("✅ 汇总数据已更新！")
-
-                    # 显示各周明细展开
-                    st.markdown("**🔍 各周明细（点击展开查看）**")
-                    sorted_week_keys = sorted(week_summary.keys(), key=extract_week_num)
-                    week_tabs = st.tabs([f"📅 {w}" for w in sorted_week_keys])
-
-                    for idx, week_key in enumerate(sorted_week_keys):
-                        with week_tabs[idx]:
-                            week_issues_detail = [i for i in prod_issues['issues'] if i.get('周次') == week_key]
-                            if week_issues_detail:
-                                df_week = pd.DataFrame(week_issues_detail)
-                                display_cols = ['产品线', '问题分类', '客户名称', '严重程度', '环境', '版本', '状态', '举一反三']
-                                available_cols = [c for c in display_cols if c in df_week.columns]
-
-                                edited_week = st.data_editor(
-                                    df_week[available_cols],
-                                    column_config={
-                                        '产品线': st.column_config.TextColumn('产品线', width='small'),
-                                        '问题分类': st.column_config.TextColumn('问题分类', width='medium'),
-                                        '客户名称': st.column_config.TextColumn('客户名称', width='small'),
-                                        '严重程度': st.column_config.TextColumn('严重程度', width='small'),
-                                        '环境': st.column_config.TextColumn('环境', width='small'),
-                                        '版本': st.column_config.TextColumn('版本', width='small'),
-                                        '状态': st.column_config.TextColumn('状态', width='small'),
-                                        '举一反三': st.column_config.CheckboxColumn('举一反三', width='small'),
-                                    },
-                                    use_container_width=True,
-                                    hide_index=True,
-                                    key=f"editor_week_detail_{week_key}",
-                                    height=300
-                                )
-
-                                if st.button(f"💾 保存 {week_key} 修改", type="primary", use_container_width=True, key=f"save_week_{week_key}"):
-                                    # 更新原始数据
-                                    other_weeks = [i for i in prod_issues['issues'] if i.get('周次') != week_key]
-                                    updated_week = edited_week.to_dict('records')
-                                    for item in updated_week:
-                                        item['周次'] = week_key
-                                    prod_issues['issues'] = other_weeks + updated_week
-                                    st.session_state.data['quality_work']['production_issues'] = prod_issues
-                                    save_data_to_file(st.session_state.data)
-                                    st.success(f"✅ {week_key} 数据已保存！")
-                                    st.rerun()
-            else:
-                st.info(f"暂无 {week_input} 周的数据可供分析")
+                    fig_sev.update_layout(height=280, showlegend=False)
+                    st.plotly_chart(fig_sev, use_container_width=True, key="chart_sev_dist")
         else:
-            st.info("暂无数据可供分析")
+            st.info("暂无数据可分析")
 
-    # ==================== 保存/导出 ====================
-    with tabs[5]:
-        st.subheader("💾 数据操作")
+        # ========== 4. 举一反三录入 ==========
+        st.markdown("#### 💡 举一反三录入")
+        
+        if issues_list:
+            # 获取需要举一反三的问题
+            fanyi_candidates = [i for i in issues_list if i.get('举一反三', False)]
 
-        col1, col2 = st.columns(2)
+            if fanyi_candidates:
+                # 创建选项列表
+                fanyi_options = []
+                for idx, issue in enumerate(fanyi_candidates):
+                    display = f"[{idx+1}] {issue.get('客户名称', '未知客户')} - {issue.get('问题描述', '无描述')[:25]}..."
+                    fanyi_options.append((idx, display, issue))
 
-        with col1:
-            st.write("**导出数据**")
-            json_str = json.dumps(st.session_state.data, ensure_ascii=False, indent=2, default=str)
-            st.download_button(
-                label="📥 下载 JSON 备份",
-                data=json_str,
-                file_name=f"quality_data_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json",
-                use_container_width=True
-            )
+                col_select, col_form = st.columns([1, 2])
+                
+                with col_select:
+                    selected_idx = st.selectbox(
+                        "选择缺陷ID",
+                        options=range(len(fanyi_options)),
+                        format_func=lambda x: fanyi_options[x][1],
+                        key="fanyi_select"
+                    )
 
-        with col2:
-            st.write("**导入数据**")
-            uploaded_file = st.file_uploader("选择 JSON 文件", type=['json'])
-            if uploaded_file is not None:
-                try:
-                    imported_data = json.load(uploaded_file)
-                    if st.button("📤 导入并覆盖当前数据", use_container_width=True):
-                        st.session_state.data = imported_data
-                        save_data_to_file(imported_data)
-                        st.success("✅ 数据导入成功！")
-                        st.rerun()
-                except json.JSONDecodeError:
-                    st.error("❌ 无效的 JSON 文件")
+                selected_issue = fanyi_options[selected_idx][2]
+                
+                with col_form:
+                    with st.form("fanyi_form"):
+                        st.caption(f"选中: {selected_issue.get('客户名称')} - {selected_issue.get('问题描述', '')[:30]}...")
+                        
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            fanyi_action = st.text_input("改进行动", placeholder="描述改进行动")
+                            fanyi_scope = st.text_input("影响范围", placeholder="如：G100全系列")
+                        with col_b:
+                            fanyi_owner = st.text_input("负责人")
+                            fanyi_deadline = st.text_input("截止日期", placeholder="如：2025-06-30")
 
-        st.divider()
+                        submitted = st.form_submit_button("💾 保存举一反三", use_container_width=True)
 
-        st.write("**推送数据到 GitHub**")
-        st.code("""
-# 在终端执行以下命令：
-git add data/quality_data.json
-git commit -m "Update: $(date +%Y-%m-%d) 质量数据"
-git push origin main
-        """, language='bash')
+                        if submitted:
+                            qi_data = data.get('quality_improvement', {})
+                            if '举一反三' not in qi_data:
+                                qi_data['举一反三'] = {'total': 0, 'completed': 0, 'pending': 0, 'items': []}
 
-        st.info("💡 推送后 Streamlit Cloud 会自动更新（约1-2分钟）")
+                            fanyi_data = qi_data['举一反三']
+                            fanyi_data['items'].append({
+                                'source': selected_issue.get('客户名称', ''),
+                                'action': fanyi_action,
+                                'scope': fanyi_scope,
+                                'status': '进行中',
+                                'progress': 0,
+                                'owner': fanyi_owner,
+                                'deadline': fanyi_deadline
+                            })
+                            fanyi_data['total'] += 1
+                            fanyi_data['pending'] += 1
+
+                            qi_data['举一反三'] = fanyi_data
+                            st.session_state.data['quality_improvement'] = qi_data
+                            save_data_to_file(st.session_state.data)
+                            st.success("✅ 举一反三已登记！")
+                            st.rerun()
+            else:
+                st.info("暂无需举一反三的问题，请先在问题列表中勾选「举一反三」")
+        else:
+            st.info("暂无现网问题数据")
+
+        # ========== 5. 现网问题周趋势 ==========
+        st.markdown("#### 📊 现网问题周趋势")
+
+        if issues_list:
+            week_counts = {}
+            for issue in issues_list:
+                week = issue.get('周次', '未知')
+                week_counts[week] = week_counts.get(week, 0) + 1
+
+            sorted_weeks = sorted(week_counts.keys())
+            trend_data = [{'周次': w, '问题数': week_counts[w]} for w in sorted_weeks]
+            df_trend = pd.DataFrame(trend_data)
+
+            if not df_trend.empty:
+                import plotly.graph_objects as go
+                fig_trend = go.Figure()
+                fig_trend.add_trace(go.Scatter(
+                    x=df_trend['周次'],
+                    y=df_trend['问题数'],
+                    mode='lines+markers',
+                    name='问题数',
+                    line=dict(color='#1f77b4', width=2),
+                    marker=dict(size=8)
+                ))
+                fig_trend.update_layout(
+                    height=300,
+                    template='plotly_white',
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    yaxis_title='问题数',
+                    xaxis_title='周次'
+                )
+                st.plotly_chart(fig_trend, use_container_width=True, key="chart_week_trend")
+        else:
+            st.info("暂无趋势数据")
+
+        # ========== 6. 按周汇总表 ==========
+        st.markdown("#### 📋 按周汇总表")
+
+        if issues_list and week_stats:
+            # 使用表格展示各周汇总
+            summary_data = []
+            for week in sorted(week_stats.keys()):
+                stats = week_stats[week]
+                summary_data.append({
+                    '周次': week,
+                    '问题总数': stats['total'],
+                    '重点客户': stats['key_customer'],
+                    '严重问题': stats['severe'],
+                    '生产环境': stats['prod_env'],
+                    '举一反三': stats['fanyi'],
+                    '涉及客户': len(stats['customers'])
+                })
+
+            df_summary = pd.DataFrame(summary_data)
+            
+            # 高亮显示
+            def highlight_key_customer(val):
+                if val > 0:
+                    return 'background-color: #fff3cd'
+                return ''
+            
+            def highlight_severe(val):
+                if val > 0:
+                    return 'background-color: #f8d7da'
+                return ''
+            
+            styled_summary = df_summary.style\
+                .applymap(highlight_key_customer, subset=['重点客户'])\
+                .applymap(highlight_severe, subset=['严重问题'])
+            
+            st.dataframe(styled_summary, use_container_width=True, hide_index=True)
+        else:
+            st.info("暂无汇总数据")
+
+        # ========== 7. 各周明细 ==========
+        st.markdown("#### 🔍 各周明细")
+
+        if issues_list:
+            # 使用标签页展示各周明细
+            all_weeks = sorted(list(set([i.get('周次', '') for i in issues_list if i.get('周次', '')])))
+            
+            if all_weeks:
+                week_tabs = st.tabs(all_weeks)
+                
+                for tab, week in zip(week_tabs, all_weeks):
+                    with tab:
+                        week_issues = [i for i in issues_list if i.get('周次') == week]
+                        df_week_detail = pd.DataFrame(week_issues)
+                        display_cols = ['产品线', '问题分类', '客户名称', '严重程度', '环境', '版本', '状态', '举一反三']
+                        available_cols = [c for c in display_cols if c in df_week_detail.columns]
+                        st.dataframe(df_week_detail[available_cols], use_container_width=True, hide_index=True)
+                        st.caption(f"{week} 共 {len(week_issues)} 个问题")
+        else:
+            st.info("暂无明细数据")
+
