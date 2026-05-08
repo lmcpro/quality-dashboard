@@ -72,7 +72,7 @@ def show_data_manager():
                 'name': st.column_config.TextColumn('客户名称', width='medium', required=True),
                 'score': st.column_config.NumberColumn('质量评分', min_value=0, max_value=100, step=1, width='small'),
                 'issues': st.column_config.NumberColumn('本月问题数', min_value=0, step=1, width='small'),
-                'trend': st.column_config.SelectColumn('趋势', options=['up', 'stable', 'down'], width='small'),
+                'trend': st.column_config.TextColumn('趋势', width='small', help='输入: up/stable/down'),
                 'di': st.column_config.NumberColumn('漏测DI', min_value=0, step=0.1, width='small'),
                 'di_target': st.column_config.TextColumn('DI目标', width='small'),
                 'di_status': st.column_config.TextColumn('DI状态', width='small'),
