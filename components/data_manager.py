@@ -1072,7 +1072,53 @@ def show_data_manager():
         else:
             st.info("暂无现网问题数据，请使用上方批量导入功能添加")
 
-        # ========== 3. 自动汇总分析 ==========
+        # ========== 3. 当周自动分析 ==========
+        st.markdown("#### 📝 客户问题分析报告")
+
+        if all_weeks and week_issues:
+            # 生成当周分析报告
+            total = len(week_issues)
+            key_customer_issues = [i for i in week_issues if i.get('问题分类') == '重点客户问题']
+            severe_issues = [i for i in week_issues if i.get('严重程度') == '严重']
+
+            # 重点客户统计
+            key_customers = {}
+            for i in key_customer_issues:
+                cust = i.get('客户名称', '')
+                if cust:
+                    key_customers[cust] = key_customers.get(cust, 0) + 1
+
+            # 环境分布
+            prod_env_count = len([i for i in week_issues if '生产' in i.get('环境', '') or '准生产' in i.get('环境', '')])
+            test_env_count = len([i for i in week_issues if '测试' in i.get('环境', '')])
+
+            # 显示分析报告
+            report_text = f"""
+**客户问题分析{selected_week}：**
+
+1、新增{total}个现网问题，{len(key_customer_issues)}个重点客户问题，{len(severe_issues)}个严重问题
+
+2、重点客户涉及{len(key_customers)}个：{', '.join([f'{k}({v})' for k, v in key_customers.items()]) if key_customers else '无'}
+
+3、环境分布：{'生产/准生产环境' if prod_env_count > 0 else '测试环境'}{prod_env_count if prod_env_count > 0 else test_env_count}个{'，测试环境' + str(test_env_count) if prod_env_count > 0 and test_env_count > 0 else ''}
+"""
+
+            st.info(report_text)
+
+            # 下载报告按钮
+            report_for_download = f"客户问题分析{selected_week}：\n\n1、新增{total}个现网问题，{len(key_customer_issues)}个重点客户问题，{len(severe_issues)}个严重问题\n\n2、重点客户涉及{len(key_customers)}个：{', '.join([f'{k}({v})' for k, v in key_customers.items()]) if key_customers else '无'}\n\n3、环境分布：{'生产/准生产环境' if prod_env_count > 0 else '测试环境'}{prod_env_count if prod_env_count > 0 else test_env_count}个{'，测试环境' + str(test_env_count) if prod_env_count > 0 and test_env_count > 0 else ''}\n"
+
+            st.download_button(
+                label="📄 下载分析报告",
+                data=report_for_download,
+                file_name=f"客户问题分析报告_{selected_week}.txt",
+                mime="text/plain",
+                key=f"download_report_{selected_week}"
+            )
+        else:
+            st.info("请选择有数据的周次查看分析报告")
+
+        # ========== 4. 自动汇总分析 ==========
         st.markdown("#### 📈 自动汇总分析")
         
         if issues_list:
