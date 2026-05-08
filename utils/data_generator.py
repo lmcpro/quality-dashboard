@@ -217,8 +217,7 @@ def generate_quality_work_data():
                 'achievement_rate': '83%',
                 'owner': '郭琦',
                 'sub_units': [
-                    {'name': '功能测试', 'owner': '崔响灵', 'target': 300, 'expected': 80, 'actual': 100, 'variance': '25%'},
-                    {'name': '系统测试', 'owner': '苏动', 'target': 315, 'expected': 85, 'actual': 118.9, 'variance': '40%'},
+                    {'name': '内核测试', 'owner': '崔响灵/苏动', 'target': 615, 'expected': 165, 'actual': 218.9, 'variance': '33%'},
                     {'name': '迁移工具测试', 'owner': '梁佳琪', 'target': 170, 'expected': 46, 'actual': 49.3, 'variance': '7%'},
                     {'name': '运维工具测试', 'owner': '熊卉', 'target': 85, 'expected': 23, 'actual': 10.8, 'variance': '-53%'},
                 ]
