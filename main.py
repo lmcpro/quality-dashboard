@@ -137,7 +137,7 @@ with st.sidebar:
 
     # 数据刷新控制
     st.subheader("⚙️ 控制面板")
-    auto_refresh = st.toggle("自动刷新数据", value=True)
+    auto_refresh = st.toggle("自动刷新数据", value=False)
     if auto_refresh:
         refresh_interval = st.slider("刷新间隔(秒)", 10, 300, 60)
 

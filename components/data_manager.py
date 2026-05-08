@@ -275,7 +275,44 @@ def show_data_manager():
                 key="editor_di_all"
             )
 
-            st.caption("💡 编辑「漏测目标」和「当前漏测DI」，「预期漏测DI」和「超标百分比」根据统计日期自动计算")
+            # 超标标红预览
+            st.write("**超标预览（超标>0.1%标红）**")
+
+            def highlight_exceed(val):
+                """超标百分比>0.1%标红"""
+                if isinstance(val, str) and '%' in val:
+                    try:
+                        num = float(val.replace('%', ''))
+                        if num > 0.1:
+                            return 'background-color: #ffcccc; color: #cc0000; font-weight: bold'
+                    except:
+                        pass
+                return ''
+
+            # 计算更新后的超标百分比
+            preview_df = edited_df.copy()
+            for idx, row in preview_df.iterrows():
+                target = row.get('漏测目标', 0)
+                actual = row.get('当前漏测DI', 0)
+                expected = round(target * progress_ratio, 1) if target > 0 else 0
+                preview_df.at[idx, '预期漏测DI'] = expected
+                if expected > 0:
+                    exceed_pct = (actual - expected) / expected * 100
+                    preview_df.at[idx, '超标百分比'] = f"{exceed_pct:.0f}%"
+                    # 超标标红
+                    if exceed_pct > 0.1:
+                        preview_df.at[idx, '超标标记'] = '🔴 超标'
+                    else:
+                        preview_df.at[idx, '超标标记'] = ''
+                else:
+                    preview_df.at[idx, '超标百分比'] = 'N/A'
+                    preview_df.at[idx, '超标标记'] = ''
+
+            # 显示带标红的预览表
+            styled_df = preview_df.style.applymap(highlight_exceed, subset=['超标百分比'])
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+            st.caption("💡 编辑「漏测目标」和「当前漏测DI」，上方预览表实时显示超标标红情况")
 
             if st.button("💾 保存漏测DI数据", type="primary", use_container_width=True):
                 # 解析编辑后的数据并更新到业务线
