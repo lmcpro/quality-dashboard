@@ -255,17 +255,39 @@ def show_data_manager():
         # 显示表格
         df_all = pd.DataFrame(all_rows)
         if not df_all.empty:
-            # 定义列配置
+            # 定义列配置（只有漏测目标和当前漏测DI可编辑）
             column_config = {
-                '业务': st.column_config.TextColumn('业务', width='small'),
-                '业务Owner': st.column_config.TextColumn('业务Owner', width='small'),
-                '作战单元': st.column_config.TextColumn('作战单元', width='medium'),
-                'Owner': st.column_config.TextColumn('Owner', width='small'),
+                '业务': st.column_config.TextColumn('业务', width='small', disabled=True),
+                '业务Owner': st.column_config.TextColumn('业务Owner', width='small', disabled=True),
+                '作战单元': st.column_config.TextColumn('作战单元', width='medium', disabled=True),
+                'Owner': st.column_config.TextColumn('Owner', width='small', disabled=True),
                 '漏测目标': st.column_config.NumberColumn('漏测目标', min_value=0, step=1, width='small'),
                 '预期漏测DI': st.column_config.NumberColumn('预期漏测DI', min_value=0, step=0.1, width='small', disabled=True),
                 '当前漏测DI': st.column_config.NumberColumn('当前漏测DI', min_value=0, step=0.1, width='small'),
                 '超标百分比': st.column_config.TextColumn('超标百分比', width='small', disabled=True),
+                '状态': st.column_config.TextColumn('状态', width='small', disabled=True),
             }
+
+            # 计算超标标记
+            df_all['状态'] = ''
+            for idx, row in df_all.iterrows():
+                target = row.get('漏测目标', 0)
+                actual = row.get('当前漏测DI', 0)
+                expected = round(target * progress_ratio, 1) if target > 0 else 0
+                df_all.at[idx, '预期漏测DI'] = expected
+                if expected > 0:
+                    exceed_pct = (actual - expected) / expected * 100
+                    df_all.at[idx, '超标百分比'] = f"{exceed_pct:.0f}%"
+                    if exceed_pct > 0.1:
+                        df_all.at[idx, '状态'] = '🔴 超标'
+                    else:
+                        df_all.at[idx, '状态'] = '✅ 正常'
+                else:
+                    df_all.at[idx, '超标百分比'] = 'N/A'
+                    df_all.at[idx, '状态'] = '-'
+
+            # 编辑表格（可编辑部分）
+            st.write("**在表格中直接编辑「漏测目标」和「当前漏测DI」**")
 
             edited_df = st.data_editor(
                 df_all,
@@ -275,44 +297,44 @@ def show_data_manager():
                 key="editor_di_all"
             )
 
-            # 超标标红预览
-            st.write("**超标预览（超标>0.1%标红）**")
+            # 超标标红显示（保存前预览）
+            if st.button("🧮 计算超标情况", type="secondary", use_container_width=True):
+                # 重新计算超标情况
+                result_df = edited_df.copy()
 
-            def highlight_exceed(val):
-                """超标百分比>0.1%标红"""
-                if isinstance(val, str) and '%' in val:
-                    try:
-                        num = float(val.replace('%', ''))
-                        if num > 0.1:
-                            return 'background-color: #ffcccc; color: #cc0000; font-weight: bold'
-                    except:
-                        pass
-                return ''
+                def highlight_exceed(val):
+                    """超标百分比>0.1%标红"""
+                    if isinstance(val, str) and '%' in val:
+                        try:
+                            num = float(val.replace('%', ''))
+                            if num > 0.1:
+                                return 'background-color: #ffcccc; color: #cc0000; font-weight: bold'
+                        except:
+                            pass
+                    return ''
 
-            # 计算更新后的超标百分比
-            preview_df = edited_df.copy()
-            for idx, row in preview_df.iterrows():
-                target = row.get('漏测目标', 0)
-                actual = row.get('当前漏测DI', 0)
-                expected = round(target * progress_ratio, 1) if target > 0 else 0
-                preview_df.at[idx, '预期漏测DI'] = expected
-                if expected > 0:
-                    exceed_pct = (actual - expected) / expected * 100
-                    preview_df.at[idx, '超标百分比'] = f"{exceed_pct:.0f}%"
-                    # 超标标红
-                    if exceed_pct > 0.1:
-                        preview_df.at[idx, '超标标记'] = '🔴 超标'
+                # 计算更新后的值
+                for idx, row in result_df.iterrows():
+                    target = row.get('漏测目标', 0)
+                    actual = row.get('当前漏测DI', 0)
+                    expected = round(target * progress_ratio, 1) if target > 0 else 0
+                    result_df.at[idx, '预期漏测DI'] = expected
+                    if expected > 0:
+                        exceed_pct = (actual - expected) / expected * 100
+                        result_df.at[idx, '超标百分比'] = f"{exceed_pct:.0f}%"
+                        if exceed_pct > 0.1:
+                            result_df.at[idx, '状态'] = '🔴 超标'
+                        else:
+                            result_df.at[idx, '状态'] = '✅ 正常'
                     else:
-                        preview_df.at[idx, '超标标记'] = ''
-                else:
-                    preview_df.at[idx, '超标百分比'] = 'N/A'
-                    preview_df.at[idx, '超标标记'] = ''
+                        result_df.at[idx, '超标百分比'] = 'N/A'
+                        result_df.at[idx, '状态'] = '-'
 
-            # 显示带标红的预览表
-            styled_df = preview_df.style.applymap(highlight_exceed, subset=['超标百分比'])
-            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+                st.write("**计算结果（超标>0.1%标红）：**")
+                styled_df = result_df.style.applymap(highlight_exceed, subset=['超标百分比'])
+                st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
-            st.caption("💡 编辑「漏测目标」和「当前漏测DI」，上方预览表实时显示超标标红情况")
+            st.caption("💡 编辑「漏测目标」和「当前漏测DI」后，点击「计算超标情况」查看标红结果，确认无误后点击「保存」")
 
             if st.button("💾 保存漏测DI数据", type="primary", use_container_width=True):
                 # 解析编辑后的数据并更新到业务线
