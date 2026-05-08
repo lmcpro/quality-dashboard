@@ -36,16 +36,19 @@ streamlit run main.py
 docker-compose up -d
 ```
 
-### Streamlit Cloud 配置
+### 数据更新与部署
 
-在线部署默认为**只读模式**，如需在本地启用编辑模式：
+**完整流程**：本地编辑数据 → 提交到 GitHub → Streamlit Cloud 自动更新
 
-1. 本地运行时创建 `.streamlit/secrets.toml`：
-```toml
-EDIT_MODE = "true"
+详见 👉 [DEPLOY_GUIDE.md](DEPLOY_GUIDE.md) 获取详细步骤
+
+**快速命令**：
+```bash
+# 本地编辑后执行
+git add data/quality_data.json
+git commit -m "Update: $(date +%Y-%m-%d) 质量数据"
+git push origin main
 ```
-
-2. 在线部署时在 Streamlit Cloud 设置环境变量 `EDIT_MODE=false`
 
 ## 📝 版本记录
 
