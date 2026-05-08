@@ -8,20 +8,55 @@ import pandas as pd
 
 DATA_FILE = "data/quality_data.json"
 
+def convert_from_serializable(obj):
+    """将序列化后的数据转换回原始格式（如DataFrame）"""
+    import pandas as pd
+    if isinstance(obj, list) and len(obj) > 0 and isinstance(obj[0], dict):
+        # 检查是否是DataFrame格式（有month等列）
+        if all(col in obj[0] for col in ['month', 'defect_density']):
+            return pd.DataFrame(obj)
+        # 递归处理列表中的每个元素
+        return [convert_from_serializable(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_from_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_from_serializable(item) for item in obj]
+    return obj
+
 def load_data_from_file():
     """从文件加载数据"""
+    import pandas as pd
     try:
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+        # 转换 trend_data 回 DataFrame
+        if data and 'quality_work' in data:
+            qw = data['quality_work']
+            if 'trend_data' in qw and isinstance(qw['trend_data'], list):
+                qw['trend_data'] = pd.DataFrame(qw['trend_data'])
+        return data
     except (FileNotFoundError, json.JSONDecodeError):
         return None
+
+def convert_to_serializable(obj):
+    """将对象转换为可JSON序列化的格式"""
+    import pandas as pd
+    if isinstance(obj, pd.DataFrame):
+        return obj.to_dict(orient='records')
+    elif isinstance(obj, dict):
+        return {k: convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_serializable(item) for item in obj]
+    return obj
 
 def save_data_to_file(data):
     """保存数据到文件"""
     import os
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+    # 转换数据中的DataFrame为可序列化格式
+    serializable_data = convert_to_serializable(data)
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump(serializable_data, f, ensure_ascii=False, indent=2)
 
 def show_data_manager():
     """展示数据管理界面"""
