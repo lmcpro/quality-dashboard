@@ -5,6 +5,20 @@
 """
 
 import streamlit as st
+import os
+
+# 检查是否为编辑模式（本地运行）或只读模式（在线部署）
+# 优先级: secrets.toml > 环境变量 > 默认(只读)
+try:
+    EDIT_MODE = st.secrets.get('EDIT_MODE', 'false').lower() == 'true'
+except:
+    EDIT_MODE = os.environ.get('EDIT_MODE', 'false').lower() == 'true'
+
+# 自动检测是否在 Streamlit Cloud 上运行
+try:
+    IS_CLOUD = st.secrets.get('STREAMLIT_SHARING', '') != ''
+except:
+    IS_CLOUD = os.environ.get('STREAMLIT_SHARING_MODE', '') != ''
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -97,12 +111,27 @@ with st.sidebar:
     st.image("https://img.icons8.com/color/96/000000/quality.png", width=80)
     st.title("质量可视化平台")
 
-    # 导航菜单
+    # 导航菜单 - 根据模式显示不同选项
+    menu_items = ["📊 质量工作", "🔧 质量改进", "📱 版本质量", "✅ QA事项", "🤖 AI智能分析", "📈 综合大盘"]
+
+    # 只在编辑模式下显示数据管理
+    if EDIT_MODE:
+        menu_items.append("⚙️ 数据管理")
+        default_index = 5
+    else:
+        default_index = 5
+
     selected_section = st.radio(
         "选择板块",
-        ["📊 质量工作", "🔧 质量改进", "📱 版本质量", "✅ QA事项", "🤖 AI智能分析", "📈 综合大盘", "⚙️ 数据管理"],
-        index=5
+        menu_items,
+        index=default_index
     )
+
+    # 显示当前模式
+    if EDIT_MODE:
+        st.success("✏️ 编辑模式")
+    else:
+        st.info("👁️ 只读模式")
 
     st.divider()
 

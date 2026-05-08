@@ -36,6 +36,17 @@ streamlit run main.py
 docker-compose up -d
 ```
 
+### Streamlit Cloud 配置
+
+在线部署默认为**只读模式**，如需在本地启用编辑模式：
+
+1. 本地运行时创建 `.streamlit/secrets.toml`：
+```toml
+EDIT_MODE = "true"
+```
+
+2. 在线部署时在 Streamlit Cloud 设置环境变量 `EDIT_MODE=false`
+
 ## 📝 版本记录
 
 | 版本 | 日期 | 说明 |
