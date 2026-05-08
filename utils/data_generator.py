@@ -195,14 +195,19 @@ def generate_quality_work_data():
                 'total_expected': 0,
                 'achievement_rate': '100%',
                 'owner': '陈炳达',
-                'sub_units': []
+                'sub_units': [
+                    {'name': 'SQL引擎', 'owner': '', 'target': 0, 'expected': 0, 'actual': 0, 'variance': 'N/A'},
+                    {'name': '存储引擎', 'owner': '', 'target': 0, 'expected': 0, 'actual': 0, 'variance': 'N/A'},
+                    {'name': 'PLSQL组', 'owner': '', 'target': 0, 'expected': 0, 'actual': 0, 'variance': 'N/A'},
+                    {'name': '驱动', 'owner': '', 'target': 0, 'expected': 0, 'actual': 0, 'variance': 'N/A'},
+                ]
             },
             '重点项目': {
                 'owner': '各项目经理',
                 'sub_units': [
-                    {'name': '比亚迪', 'owner': '张文龙', 'target': 110, 'expected': 30, 'actual': 21.1, 'variance': '-29%'},
-                    {'name': 'ZHGC试点', 'owner': '张文龙', 'target': 50, 'expected': 13, 'actual': 11.1, 'variance': '-17%'},
-                    {'name': '长江存储', 'owner': '董汭荣', 'target': 145, 'expected': 40, 'actual': 8, 'variance': '-80%'},
+                    {'name': '比亚迪', 'owner': '张文龙', 'business_owner': '张文龙', 'target': 110, 'expected': 30, 'actual': 21.1, 'variance': '-29%'},
+                    {'name': 'ZHGC试点', 'owner': '张文龙', 'business_owner': '张文龙', 'target': 50, 'expected': 13, 'actual': 11.1, 'variance': '-17%'},
+                    {'name': '长江存储', 'owner': '董汭荣', 'business_owner': '董汭荣', 'target': 145, 'expected': 40, 'actual': 8, 'variance': '-80%'},
                 ]
             },
             '测试': {
@@ -212,13 +217,10 @@ def generate_quality_work_data():
                 'achievement_rate': '83%',
                 'owner': '郭琦',
                 'sub_units': [
-                    # 测试值自动从内核算出：
-                    # 内核测试 = SQL引擎 + 存储引擎 + PLSQL + 驱动 + CMCC内核 = 72.2+47.1+24+1+4 = 148.3
-                    {'name': '内核测试', 'owner': '崔响灵、苏动', 'target': 615, 'expected': 165, 'actual': 148.3, 'variance': '-10%', 'note': 'SQL引擎+存储引擎+PLSQL+驱动+CMCC内核'},
-                    # 迁移工具测试 = 迁移工具 + DTP = 33.3+1 = 34.3
-                    {'name': '迁移工具测试', 'owner': '梁佳琪', 'target': 170, 'expected': 46, 'actual': 34.3, 'variance': '-25%', 'note': '迁移工具+DTP'},
-                    # 运维工具测试 = 运维管理工具 + DBOPS = 11.3+0.1 = 11.4
-                    {'name': '运维工具测试', 'owner': '熊卉', 'target': 85, 'expected': 23, 'actual': 11.4, 'variance': '-50%', 'note': '运维管理工具+DBOPS'},
+                    {'name': '功能测试', 'owner': '崔响灵', 'target': 300, 'expected': 80, 'actual': 100, 'variance': '25%'},
+                    {'name': '系统测试', 'owner': '苏动', 'target': 315, 'expected': 85, 'actual': 118.9, 'variance': '40%'},
+                    {'name': '迁移工具测试', 'owner': '梁佳琪', 'target': 170, 'expected': 46, 'actual': 49.3, 'variance': '7%'},
+                    {'name': '运维工具测试', 'owner': '熊卉', 'target': 85, 'expected': 23, 'actual': 10.8, 'variance': '-53%'},
                 ]
             },
             '维优部': {
@@ -226,9 +228,20 @@ def generate_quality_work_data():
                 'total_target': 870,
                 'total_expected': 234,
                 'achievement_rate': '83%',
-                'owner': '陈建华',  # 维优部代表研发体系整体
+                'owner': '陈健华',  # 维优部代表研发体系整体
                 'sub_units': [
-                    {'name': '研发体系', 'owner': '陈建华', 'target': 870, 'expected': 234, 'actual': 194, 'variance': '-17%'}
+                    {'name': '研发体系', 'owner': '陈健华', 'target': 870, 'expected': 234, 'actual': 194, 'variance': '-17%'}
+                ]
+            },
+            '技术开发部': {
+                'total_actual': 3,
+                'total_target': 0,
+                'total_expected': 0,
+                'achievement_rate': 'N/A',
+                'owner': '王正侣',
+                'sub_units': [
+                    {'name': '技术开发', 'owner': '', 'target': 0, 'expected': 0, 'actual': 0, 'variance': 'N/A'},
+                    {'name': '向量引擎', 'owner': '', 'target': 0, 'expected': 0, 'actual': 3, 'variance': 'N/A'},
                 ]
             }
         },

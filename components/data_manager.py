@@ -101,59 +101,241 @@ def show_data_manager():
     # ==================== 漏测DI ====================
     with tabs[1]:
         st.subheader("🐛 漏测DI明细")
-        st.caption("编辑各业务线的漏测DI数据")
+        st.caption("编辑各业务线的漏测DI数据 | 预期DI根据年度目标按时间比例自动计算")
 
         qw_data = data.get('quality_work', {})
         defect_escape = qw_data.get('defect_escape', {})
 
         # 总体数据
         st.write("**总体统计**")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            current_di = st.number_input("当前漏测DI", value=float(defect_escape.get('current_di', 0)), step=0.1)
-        with col2:
             target_di = st.number_input("年度目标", value=float(defect_escape.get('target_di', 870)), step=1.0)
+        with col2:
+            as_of_date = st.date_input("统计日期", value=datetime.strptime(defect_escape.get('as_of_date', '2026-05-06'), '%Y-%m-%d'))
         with col3:
-            as_of_date = st.date_input("统计日期", value=datetime.strptime(defect_escape.get('as_of_date', '2026-01-01'), '%Y-%m-%d'))
+            # 计算日期比例（今年第几天/365）
+            year_start = datetime(as_of_date.year, 1, 1)
+            day_of_year = (as_of_date - year_start.date()).days + 1
+            year_days = 366 if as_of_date.year % 4 == 0 else 365
+            progress_ratio = day_of_year / year_days
+            expected_total = round(target_di * progress_ratio, 1)
+            st.metric("预期DI", f"{expected_total}", f"{day_of_year}/{year_days}天")
+        with col4:
+            current_di = st.number_input("当前漏测DI", value=float(defect_escape.get('current_di', 0)), step=0.1)
 
-        # 作战单元明细
-        st.divider()
-        st.write("**作战单元明细**")
+        st.info(f"📅 日期比例: {progress_ratio:.1%} | 预期DI = {target_di} × {progress_ratio:.1%} = {expected_total}")
 
+        # 获取业务线数据
         business_lines = defect_escape.get('business_lines', {})
-        g100 = business_lines.get('G100老版本内核', {})
-        sub_units = g100.get('sub_units', [])
 
-        if sub_units:
-            df_units = pd.DataFrame(sub_units)
+        # 准备表格数据 - 按照截图结构
+        all_rows = []
+
+        # G100老版本内核（含驱动HAS）
+        g100_old = business_lines.get('G100老版本内核', {})
+        g100_old_units = g100_old.get('sub_units', [])
+        g100_old_owner = g100_old.get('owner', '陈炳达')
+
+        # 添加G100老版本内核明细行
+        for unit in g100_old_units:
+            unit_target = unit.get('target', 0)
+            unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
+            all_rows.append({
+                '业务': 'G100老版本内核（含驱动HAS）',
+                '业务Owner': g100_old_owner,
+                '作战单元': unit.get('name', ''),
+                'Owner': unit.get('owner', ''),
+                '漏测目标': unit_target,
+                '预期漏测DI': unit_expected,
+                '当前漏测DI': unit.get('actual', 0),
+                '超标百分比': f"{((unit.get('actual', 0) - unit_expected) / unit_expected * 100):.0f}%" if unit_expected > 0 else "N/A"
+            })
+
+        # G100老版本内核小计
+        g100_old_total_target = sum(u.get('target', 0) for u in g100_old_units)
+        g100_old_total_expected = round(g100_old_total_target * progress_ratio, 1)
+        g100_old_total_actual = sum(u.get('actual', 0) for u in g100_old_units)
+        all_rows.append({
+            '业务': 'G100老版本内核（含驱动HAS）',
+            '业务Owner': '',
+            '作战单元': '【G100老版本内核漏测合计】',
+            'Owner': '',
+            '漏测目标': g100_old_total_target,
+            '预期漏测DI': g100_old_total_expected,
+            '当前漏测DI': round(g100_old_total_actual, 1),
+            '超标百分比': f"{((g100_old_total_actual - g100_old_total_expected) / g100_old_total_expected * 100):.0f}%" if g100_old_total_expected > 0 else "N/A"
+        })
+
+        # G100 V5版本
+        g100_v5 = business_lines.get('G100_V5版本', {})
+        g100_v5_units = g100_v5.get('sub_units', [])
+        if g100_v5_units:
+            for unit in g100_v5_units:
+                unit_target = unit.get('target', 0)
+                unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
+                all_rows.append({
+                    '业务': 'G100 V5版本',
+                    '业务Owner': '',
+                    '作战单元': unit.get('name', ''),
+                    'Owner': unit.get('owner', ''),
+                    '漏测目标': unit_target,
+                    '预期漏测DI': unit_expected,
+                    '当前漏测DI': unit.get('actual', 0),
+                    '超标百分比': f"{((unit.get('actual', 0) - unit_expected) / unit_expected * 100):.0f}%" if unit_expected > 0 else "N/A"
+                })
+
+        # 重点项目
+        key_projects = business_lines.get('重点项目', {})
+        key_units = key_projects.get('sub_units', [])
+        for unit in key_units:
+            unit_target = unit.get('target', 0)
+            unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
+            all_rows.append({
+                '业务': '重点项目',
+                '业务Owner': unit.get('business_owner', ''),
+                '作战单元': unit.get('name', ''),
+                'Owner': unit.get('owner', ''),
+                '漏测目标': unit_target,
+                '预期漏测DI': unit_expected,
+                '当前漏测DI': unit.get('actual', 0),
+                '超标百分比': f"{((unit.get('actual', 0) - unit_expected) / unit_expected * 100):.0f}%" if unit_expected > 0 else "N/A"
+            })
+
+        # 测试
+        test_units = business_lines.get('测试', {}).get('sub_units', [])
+        for unit in test_units:
+            unit_target = unit.get('target', 0)
+            unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
+            all_rows.append({
+                '业务': '测试',
+                '业务Owner': '郭琦',
+                '作战单元': unit.get('name', ''),
+                'Owner': unit.get('owner', ''),
+                '漏测目标': unit_target,
+                '预期漏测DI': unit_expected,
+                '当前漏测DI': unit.get('actual', 0),
+                '超标百分比': f"{((unit.get('actual', 0) - unit_expected) / unit_expected * 100):.0f}%" if unit_expected > 0 else "N/A"
+            })
+
+        # 维优部
+        weiyou = business_lines.get('维优部', {})
+        weiyou_units = weiyou.get('sub_units', [])
+        for unit in weiyou_units:
+            unit_target = unit.get('target', 0)
+            unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
+            all_rows.append({
+                '业务': '维优部',
+                '业务Owner': '陈健华',
+                '作战单元': unit.get('name', ''),
+                'Owner': unit.get('owner', ''),
+                '漏测目标': unit_target,
+                '预期漏测DI': unit_expected,
+                '当前漏测DI': unit.get('actual', 0),
+                '超标百分比': f"{((unit.get('actual', 0) - unit_expected) / unit_expected * 100):.0f}%" if unit_expected > 0 else "N/A"
+            })
+
+        # 技术开发部
+        tech_units = business_lines.get('技术开发部', {}).get('sub_units', [])
+        for unit in tech_units:
+            unit_target = unit.get('target', 0)
+            unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
+            all_rows.append({
+                '业务': '技术开发部',
+                '业务Owner': '王正侣',
+                '作战单元': unit.get('name', ''),
+                'Owner': unit.get('owner', ''),
+                '漏测目标': unit_target,
+                '预期漏测DI': unit_expected,
+                '当前漏测DI': unit.get('actual', 0),
+                '超标百分比': f"{((unit.get('actual', 0) - unit_expected) / unit_expected * 100):.0f}%" if unit_expected > 0 else "N/A"
+            })
+
+        # 显示表格
+        df_all = pd.DataFrame(all_rows)
+        if not df_all.empty:
+            # 定义列配置
             column_config = {
-                'name': st.column_config.TextColumn('作战单元', width='medium', disabled=True),
-                'owner': st.column_config.TextColumn('Owner', width='small'),
-                'target': st.column_config.NumberColumn('目标', min_value=0, step=1, width='small'),
-                'expected': st.column_config.NumberColumn('预期', min_value=0, step=0.1, width='small'),
-                'actual': st.column_config.NumberColumn('实际', min_value=0, step=0.1, width='small'),
-                'variance': st.column_config.TextColumn('偏差', width='small'),
+                '业务': st.column_config.TextColumn('业务', width='small'),
+                '业务Owner': st.column_config.TextColumn('业务Owner', width='small'),
+                '作战单元': st.column_config.TextColumn('作战单元', width='medium'),
+                'Owner': st.column_config.TextColumn('Owner', width='small'),
+                '漏测目标': st.column_config.NumberColumn('漏测目标', min_value=0, step=1, width='small'),
+                '预期漏测DI': st.column_config.NumberColumn('预期漏测DI', min_value=0, step=0.1, width='small', disabled=True),
+                '当前漏测DI': st.column_config.NumberColumn('当前漏测DI', min_value=0, step=0.1, width='small'),
+                '超标百分比': st.column_config.TextColumn('超标百分比', width='small', disabled=True),
             }
 
             edited_df = st.data_editor(
-                df_units,
+                df_all,
                 column_config=column_config,
                 use_container_width=True,
                 hide_index=True,
-                key="editor_di_units"
+                key="editor_di_all"
             )
 
+            st.caption("💡 编辑「漏测目标」和「当前漏测DI」，「预期漏测DI」和「超标百分比」根据统计日期自动计算")
+
             if st.button("💾 保存漏测DI数据", type="primary", use_container_width=True):
-                # 更新数据
-                business_lines['G100老版本内核']['sub_units'] = edited_df.to_dict('records')
+                # 解析编辑后的数据并更新到业务线
+                edited_rows = edited_df.to_dict('records')
+
+                # 按业务分组更新
+                g100_old_units = []
+                g100_v5_units = []
+                key_project_units = []
+                test_units = []
+                weiyou_units = []
+                tech_units = []
+
+                for row in edited_rows:
+                    business = row.get('业务', '')
+                    unit_data = {
+                        'name': row.get('作战单元', ''),
+                        'owner': row.get('Owner', ''),
+                        'target': row.get('漏测目标', 0),
+                        'actual': row.get('当前漏测DI', 0),
+                    }
+
+                    # 跳过小计行
+                    if '【' in str(unit_data['name']) or '合计' in str(unit_data['name']):
+                        continue
+
+                    if business == 'G100老版本内核（含驱动HAS）':
+                        g100_old_units.append(unit_data)
+                    elif business == 'G100 V5版本':
+                        g100_v5_units.append(unit_data)
+                    elif business == '重点项目':
+                        unit_data['business_owner'] = row.get('业务Owner', '')
+                        key_project_units.append(unit_data)
+                    elif business == '测试':
+                        test_units.append(unit_data)
+                    elif business == '维优部':
+                        weiyou_units.append(unit_data)
+                    elif business == '技术开发部':
+                        tech_units.append(unit_data)
+
+                # 更新业务线数据
+                business_lines['G100老版本内核']['sub_units'] = g100_old_units
+                business_lines['G100_V5版本']['sub_units'] = g100_v5_units
+                business_lines['重点项目']['sub_units'] = key_project_units
+                business_lines['测试']['sub_units'] = test_units
+                business_lines['维优部']['sub_units'] = weiyou_units
+                business_lines['技术开发部'] = {
+                    'total_actual': sum(u.get('actual', 0) for u in tech_units),
+                    'total_target': 0,
+                    'total_expected': 0,
+                    'achievement_rate': 'N/A',
+                    'owner': '王正侣',
+                    'sub_units': tech_units
+                }
+
                 defect_escape['current_di'] = current_di
                 defect_escape['target_di'] = target_di
                 defect_escape['as_of_date'] = as_of_date.strftime('%Y-%m-%d')
+                defect_escape['expected_di'] = expected_total
+                defect_escape['achievement_rate'] = f"{(current_di / expected_total * 100):.0f}%" if expected_total > 0 else "N/A"
                 defect_escape['business_lines'] = business_lines
-
-                # 计算达成率
-                expected = current_di / (target_di * 0.27) * 100 if target_di > 0 else 0
-                defect_escape['achievement_rate'] = f"{expected:.0f}%"
 
                 st.session_state.data['quality_work']['defect_escape'] = defect_escape
                 save_data_to_file(st.session_state.data)
