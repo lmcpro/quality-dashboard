@@ -115,8 +115,9 @@ def show_data_manager():
             as_of_date = st.date_input("统计日期", value=datetime.strptime(defect_escape.get('as_of_date', '2026-05-06'), '%Y-%m-%d'))
         with col3:
             # 计算日期比例（今年第几天/365）
-            year_start = datetime(as_of_date.year, 1, 1)
-            day_of_year = (as_of_date - year_start.date()).days + 1
+            from datetime import date
+            year_start = date(as_of_date.year, 1, 1)
+            day_of_year = (as_of_date - year_start).days + 1
             year_days = 366 if as_of_date.year % 4 == 0 else 365
             progress_ratio = day_of_year / year_days
             expected_total = round(target_di * progress_ratio, 1)
