@@ -4,7 +4,7 @@
 
 ## 🔗 在线访问
 
-**Streamlit Cloud**: [点击访问](https://your-app-name.streamlit.app)
+**Streamlit Cloud**: [点击访问](https://quality-dashboard-l.streamlit.app)
 
 ## ✨ 功能特性
 
