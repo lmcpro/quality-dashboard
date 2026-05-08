@@ -203,9 +203,39 @@ def show_data_manager():
                 '超标百分比': f"{((unit.get('actual', 0) - unit_expected) / unit_expected * 100):.0f}%" if unit_expected > 0 else "N/A"
             })
 
-        # 测试
+        # 测试 - 合并功能测试和系统测试为内核测试
         test_units = business_lines.get('测试', {}).get('sub_units', [])
+
+        # 查找功能测试和系统测试并合并
+        kernel_test_target = 0
+        kernel_test_actual = 0
+        other_test_units = []
+
         for unit in test_units:
+            name = unit.get('name', '')
+            if name in ['功能测试', '系统测试', '内核测试']:
+                # 合并到内核测试
+                kernel_test_target += unit.get('target', 0)
+                kernel_test_actual += unit.get('actual', 0)
+            else:
+                other_test_units.append(unit)
+
+        # 添加合并后的内核测试行
+        if kernel_test_target > 0 or kernel_test_actual > 0:
+            kernel_expected = round(kernel_test_target * progress_ratio, 1) if kernel_test_target > 0 else 0
+            all_rows.append({
+                '业务': '测试',
+                '业务Owner': '郭琦',
+                '作战单元': '内核测试',
+                'Owner': '崔响灵/苏动',
+                '漏测目标': kernel_test_target,
+                '预期漏测DI': kernel_expected,
+                '当前漏测DI': kernel_test_actual,
+                '超标百分比': f"{((kernel_test_actual - kernel_expected) / kernel_expected * 100):.0f}%" if kernel_expected > 0 else "N/A"
+            })
+
+        # 添加其他测试单元（迁移工具测试、运维工具测试等）
+        for unit in other_test_units:
             unit_target = unit.get('target', 0)
             unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
             all_rows.append({
