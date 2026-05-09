@@ -961,45 +961,50 @@ def show_data_manager():
 
             if st.button("📥 解析并导入", type="primary", key="btn_parse_import"):
                 if paste_data.strip():
-                    lines = paste_data.strip().split('\n')
-                    
-                    # 先清除该周的现有数据，避免重复
-                    target_week = week_input.upper()
-                    existing_other_weeks = [i for i in issues_list if i.get('周次') != target_week]
-                    issues_list = existing_other_weeks
-                    
-                    imported_count = 0
-                    last_product_line = ''  # 记录上一行的产品线
-                    last_issue_type = ''  # 记录上一行的问题分类
-                    for line in lines:
-                        parts = line.split('\t')
-                        if len(parts) >= 8:
+                    # 使用pandas解析Excel粘贴的数据，正确处理包含换行的字段
+                    import io
+                    try:
+                        # 尝试用pandas读取制表符分隔的数据
+                        df = pd.read_csv(io.StringIO(paste_data), sep='\t', header=None, 
+                                        names=['产品线', '问题分类', '客户名称', '严重程度', '问题单号', 
+                                               '环境', '版本', '问题描述', '影响范围', '状态', '举一反三'],
+                                        keep_default_na=False)
+                        
+                        # 先清除该周的现有数据，避免重复
+                        target_week = week_input.upper()
+                        existing_other_weeks = [i for i in issues_list if i.get('周次') != target_week]
+                        issues_list = existing_other_weeks
+                        
+                        imported_count = 0
+                        last_product_line = ''  # 记录上一行的产品线
+                        last_issue_type = ''  # 记录上一行的问题分类
+                        
+                        for _, row in df.iterrows():
                             # 获取字段值，为空时提供默认值
-                            # 支持格式：产品线 | 问题分类 | 客户名称 | 严重程度 | 问题单号 | 环境 | 版本 | 问题描述 | 影响范围 | 状态 | 举一反三
-                            
                             # 产品线为空时继承上一行（Excel合并单元格的情况）
-                            if parts[0].strip():
-                                product_line = parts[0].strip()
+                            if str(row['产品线']).strip():
+                                product_line = str(row['产品线']).strip()
                                 last_product_line = product_line
                             else:
                                 product_line = last_product_line if last_product_line else '未分类'
                             
                             # 问题分类为空时继承上一行（Excel合并单元格的情况）
-                            if parts[1].strip():
-                                issue_type = parts[1].strip()
+                            if str(row['问题分类']).strip():
+                                issue_type = str(row['问题分类']).strip()
                                 last_issue_type = issue_type
                             else:
                                 issue_type = last_issue_type if last_issue_type else '一般问题'
                             
-                            customer = parts[2].strip() if parts[2].strip() else '未知客户'
-                            severity = parts[3].strip() if parts[3].strip() else '一般'
-                            ticket_id = parts[4].strip() if len(parts) > 4 and parts[4].strip() else ''
-                            env = parts[5].strip() if len(parts) > 5 and parts[5].strip() else '未知'
-                            version = parts[6].strip() if len(parts) > 6 and parts[6].strip() else '-'
-                            desc = parts[7].strip() if len(parts) > 7 and parts[7].strip() else '-'
-                            impact = parts[8].strip() if len(parts) > 8 and parts[8].strip() else ''
-                            status = parts[9].strip() if len(parts) > 9 and parts[9].strip() else '待处理'
-                            fanyi = parts[10].strip() == '是' if len(parts) > 10 and parts[10].strip() else False
+                            customer = str(row['客户名称']).strip() if str(row['客户名称']).strip() else '未知客户'
+                            severity = str(row['严重程度']).strip() if str(row['严重程度']).strip() else '一般'
+                            ticket_id = str(row['问题单号']).strip()
+                            env = str(row['环境']).strip() if str(row['环境']).strip() else '未知'
+                            version = str(row['版本']).strip() if str(row['版本']).strip() else '-'
+                            desc = str(row['问题描述']).strip() if str(row['问题描述']).strip() else '-'
+                            # 保留影响范围中的换行
+                            impact = str(row['影响范围'])
+                            status = str(row['状态']).strip() if str(row['状态']).strip() else '待处理'
+                            fanyi = str(row['举一反三']).strip() == '是' if str(row['举一反三']).strip() else False
                             
                             issue = {
                                 '周次': target_week,
