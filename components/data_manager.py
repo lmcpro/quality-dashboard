@@ -985,6 +985,8 @@ def show_data_manager():
                     qw_data['production_issues'] = prod_issues
                     st.session_state.data['quality_work'] = qw_data
                     save_data_to_file(st.session_state.data)
+                    # 保存当前导入的周次到session_state，以便自动选中
+                    st.session_state['last_imported_week'] = week_input.upper()
                     st.success(f"✅ 成功导入 {imported_count} 条现网问题到 {week_input.upper()}！")
                     st.rerun()
                 else:
@@ -1000,8 +1002,17 @@ def show_data_manager():
             # 使用列布局：周次选择 + 统计卡片
             col_week_select, col_stats = st.columns([1, 3])
             
+            # 检查是否有刚导入的周次，如果有则默认选中
+            default_week_index = 0
+            if 'last_imported_week' in st.session_state:
+                last_week = st.session_state['last_imported_week']
+                if last_week in all_weeks:
+                    default_week_index = all_weeks.index(last_week)
+                # 清除session_state，避免刷新后还保持选中
+                del st.session_state['last_imported_week']
+            
             with col_week_select:
-                selected_week = st.selectbox("选择周次", all_weeks, key="week_select")
+                selected_week = st.selectbox("选择周次", all_weeks, index=default_week_index, key="week_select")
             
             # 筛选该周的问题
             week_issues = [i for i in issues_list if i.get('周次') == selected_week]
