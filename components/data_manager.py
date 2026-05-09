@@ -969,12 +969,20 @@ def show_data_manager():
                     issues_list = existing_other_weeks
                     
                     imported_count = 0
+                    last_product_line = ''  # 记录上一行的产品线
                     for line in lines:
                         parts = line.split('\t')
                         if len(parts) >= 8:
                             # 获取字段值，为空时提供默认值
                             # 支持格式：产品线 | 问题分类 | 客户名称 | 严重程度 | 问题单号 | 环境 | 版本 | 问题描述 | 影响范围 | 状态 | 举一反三
-                            product_line = parts[0].strip() if parts[0].strip() else '未分类'
+                            
+                            # 产品线为空时继承上一行（Excel合并单元格的情况）
+                            if parts[0].strip():
+                                product_line = parts[0].strip()
+                                last_product_line = product_line
+                            else:
+                                product_line = last_product_line if last_product_line else '未分类'
+                            
                             issue_type = parts[1].strip() if parts[1].strip() else '一般问题'
                             customer = parts[2].strip() if parts[2].strip() else '未知客户'
                             severity = parts[3].strip() if parts[3].strip() else '一般'
@@ -1061,7 +1069,9 @@ def show_data_manager():
                 column_config = {
                     '周次': st.column_config.TextColumn('周次', width='small'),
                     '产品线': st.column_config.TextColumn('产品线', width='medium'),
-                    '问题分类': st.column_config.SelectboxColumn('问题分类', options=['重点客户问题', '一般问题', '内部问题'], width='medium'),
+                    '问题分类': st.column_config.SelectboxColumn('问题分类', 
+                        options=['重点客户问题', '非重点客户严重问题', '非重点客户一般问题', '一般问题', '内部问题'], 
+                        width='medium'),
                     '客户名称': st.column_config.TextColumn('客户名称', width='medium'),
                     '严重程度': st.column_config.SelectboxColumn('严重程度', options=['严重', '一般', '轻微'], width='small'),
                     '环境': st.column_config.SelectboxColumn('环境', options=['生产环境', '准生产环境', '测试环境', '开发环境'], width='small'),
