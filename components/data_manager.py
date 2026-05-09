@@ -1172,7 +1172,13 @@ def show_data_manager():
 
         # ========== 4. 自动汇总分析 ==========
         st.markdown("#### 📈 自动汇总分析")
-        
+
+        # 刷新按钮
+        col_analysis_title, col_refresh = st.columns([6, 1])
+        with col_refresh:
+            if st.button("🔄 刷新", key="btn_refresh_analysis"):
+                st.rerun()
+
         if issues_list:
             # 统计各周数据
             week_stats = {}
