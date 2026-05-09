@@ -55,3 +55,90 @@
 
 - 本地路径：`data/quality_data.json`
 - 已被 `.gitignore` 排除，需手动提交
+
+## 客户质量数据自动刷新机制
+
+### 数据来源
+
+客户质量模块的数据自动从以下三个数据源实时计算：
+
+1. **漏测DI数据**
+   - 来源：`defect_escape['project_di']`
+   - 字段：`di`（实际值）、`di_target`（目标值）、`di_status`（状态）
+
+2. **现网问题数**
+   - 来源：`production_issues['issues']`
+   - 按客户名称统计问题数量
+
+3. **事故数**
+   - 来源：`accident_rate['accidents']`
+   - 按客户名称统计事故数量
+
+### 客户名称映射
+
+用于匹配不同数据源中的客户名称变体：
+
+```python
+customer_mapping = {
+    'zhgc': ['zhgc', 'ZHGC'],
+    '比亚迪': ['比亚迪', 'BYD', 'byd'],
+    '长江存储': ['长江存储', '长存', 'cxc', 'CXC']
+}
+```
+
+### 实现位置
+
+- **数据管理后台**: `components/data_manager.py` 第60-145行
+- **综合大盘展示**: `components/quality_work.py` 第171-225行
+
+### 刷新逻辑
+
+```python
+# 1. 获取各数据源数据
+defect_data = data.get('defect_escape', {})
+project_di = defect_data.get('project_di', {})
+prod_issues = data.get('production_issues', {})
+issues_list = prod_issues.get('issues', [])
+accident_data = data.get('accident_rate', {})
+accidents = accident_data.get('accidents', [])
+
+# 2. 统计每个客户的问题数和事故数
+customer_issues_count = {}
+for issue in issues_list:
+    customer_name = issue.get('客户名称', '')
+    # 使用customer_mapping匹配标准名称
+    ...
+
+# 3. 刷新客户数据
+for customer in customers:
+    name = customer.get('name', '')
+    # 从project_di获取DI数据
+    # 从customer_issues_count获取问题数
+    # 从customer_accidents_count获取事故数
+```
+
+## 事故级别定义
+
+- **P1**: 紧急事故
+- **P2**: 高等级事故
+- **P3**: 中等级事故
+- **P4**: 低等级事故
+
+注意：事故级别从P1开始，不是P0。
+
+## 质量风险预警规则
+
+### 漏测DI超标检测
+
+1. **作战单元级别**
+   - 超标阈值：超过预期值 0.1%
+   - 预期DI = 目标DI × 日期比例（今年第几天/365）
+   - 展示：最严重的3个超标单元
+
+2. **总体级别**
+   - 超标阈值：超过预期值 10%
+   - 风险等级：超标>30%为"高"，否则为"中"
+
+### 实现位置
+
+- `main.py` 第470-550行
