@@ -60,24 +60,92 @@ def show_data_manager():
     # ==================== 客户质量 ====================
     with tabs[0]:
         st.subheader("👥 客户质量数据")
-        st.caption("直接在表格中编辑客户名称、评分、问题数等数据")
+        st.caption("客户质量数据自动从各数据源刷新：漏测DI、现网问题、事故统计")
 
         qw_data = data.get('quality_work', {})
         customer_quality = qw_data.get('customer_quality', {})
         customers = customer_quality.get('customers', [])
 
+        # ========== 自动从其他数据源刷新客户数据 ==========
+        # 1. 从漏测DI模块获取DI数据
+        defect_data = data.get('defect_escape', {})
+        project_di = defect_data.get('project_di', {})
+
+        # 2. 从现网问题模块获取问题数
+        prod_issues = data.get('production_issues', {})
+        issues_list = prod_issues.get('issues', [])
+
+        # 3. 从事故统计模块获取事故数
+        accident_data = data.get('accident_rate', {})
+        accidents = accident_data.get('accidents', [])
+
+        # 客户名称映射（用于匹配不同数据源中的客户名称）
+        customer_mapping = {
+            'zhgc': ['zhgc', 'ZHGC'],
+            '比亚迪': ['比亚迪', 'BYD', 'byd'],
+            '长江存储': ['长江存储', '长存', 'cxc', 'CXC']
+        }
+
+        # 计算每个客户的现网问题数
+        customer_issues_count = {}
+        for issue in issues_list:
+            customer_name = issue.get('客户名称', '')
+            for standard_name, aliases in customer_mapping.items():
+                if any(alias in customer_name for alias in aliases):
+                    customer_issues_count[standard_name] = customer_issues_count.get(standard_name, 0) + 1
+                    break
+            else:
+                # 未匹配到映射的直接计数
+                customer_issues_count[customer_name] = customer_issues_count.get(customer_name, 0) + 1
+
+        # 计算每个客户的事故数
+        customer_accidents_count = {}
+        for accident in accidents:
+            customer_name = accident.get('客户名称', '')
+            for standard_name, aliases in customer_mapping.items():
+                if any(alias in customer_name for alias in aliases):
+                    customer_accidents_count[standard_name] = customer_accidents_count.get(standard_name, 0) + 1
+                    break
+            else:
+                customer_accidents_count[customer_name] = customer_accidents_count.get(customer_name, 0) + 1
+
+        # 刷新客户数据
+        refreshed_customers = []
+        for customer in customers:
+            name = customer.get('name', '')
+            refreshed_customer = customer.copy()
+
+            # 刷新DI数据（从漏测DI模块）
+            if name in project_di:
+                di_info = project_di[name]
+                refreshed_customer['di'] = di_info.get('actual', 0)
+                refreshed_customer['di_target'] = f"{di_info.get('target', 0)}"
+                refreshed_customer['di_status'] = di_info.get('status', '正常')
+
+            # 刷新现网问题数
+            refreshed_customer['issues'] = customer_issues_count.get(name, 0)
+
+            # 刷新事故数
+            refreshed_customer['accidents'] = customer_accidents_count.get(name, 0)
+
+            refreshed_customers.append(refreshed_customer)
+
+        # 显示刷新提示
+        st.info("📊 数据已自动刷新：DI来自【漏测DI】模块，问题数来自【现网问题】模块，事故数来自【事故统计】模块")
+
         # 转换为 DataFrame
-        df_customers = pd.DataFrame(customers)
+        df_customers = pd.DataFrame(refreshed_customers)
         if not df_customers.empty:
             # 定义列配置
             column_config = {
                 'name': st.column_config.TextColumn('客户名称', width='medium', required=True),
                 'score': st.column_config.NumberColumn('质量评分', min_value=0, max_value=100, step=1, width='small'),
-                'issues': st.column_config.NumberColumn('本月问题数', min_value=0, step=1, width='small'),
+                'issues': st.column_config.NumberColumn('现网问题数', min_value=0, step=1, width='small', help='自动从现网问题模块统计'),
+                'accidents': st.column_config.NumberColumn('事故数', min_value=0, step=1, width='small', help='自动从事故统计模块统计'),
                 'trend': st.column_config.TextColumn('趋势', width='small', help='输入: up/stable/down'),
-                'di': st.column_config.NumberColumn('漏测DI', min_value=0, step=0.1, width='small'),
-                'di_target': st.column_config.TextColumn('DI目标', width='small'),
-                'di_status': st.column_config.TextColumn('DI状态', width='small'),
+                'di': st.column_config.NumberColumn('漏测DI', min_value=0, step=0.1, width='small', help='自动从漏测DI模块获取'),
+                'di_target': st.column_config.TextColumn('DI目标', width='small', disabled=True),
+                'di_status': st.column_config.TextColumn('DI状态', width='small', disabled=True),
             }
 
             edited_df = st.data_editor(
@@ -128,6 +196,206 @@ def show_data_manager():
             current_di = st.number_input("当前漏测DI", value=float(defect_escape.get('current_di', 0)), step=0.1)
 
         st.info(f"📅 日期比例: {progress_ratio:.1%} | 预期DI = {target_di} × {progress_ratio:.1%} = {expected_total}")
+
+        # 获取业务线数据
+        business_lines = defect_escape.get('business_lines', {})
+
+        # 准备表格数据 - 按照截图结构
+        all_rows = []
+
+        # G100老版本内核（含驱动HAS）
+        g100_old = business_lines.get('G100老版本内核', {})
+        g100_old_units = g100_old.get('sub_units', [])
+        g100_old_owner = g100_old.get('owner', '陈炳达')
+
+        # 添加G100老版本内核明细行
+        for unit in g100_old_units:
+            unit_target = unit.get('target', 0)
+            unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
+            all_rows.append({
+                '业务': 'G100老版本内核（含驱动HAS）',
+                '业务Owner': g100_old_owner,
+                '作战单元': unit.get('name', ''),
+                'Owner': unit.get('owner', ''),
+                '漏测目标': unit_target,
+                '预期漏测DI': f"{unit_expected:.1f}",
+                '当前漏测DI': unit.get('actual', 0),
+                '超标百分比': f"{((unit.get('actual', 0) - unit_expected) / unit_expected * 100):.0f}%" if unit_expected > 0 else "N/A"
+            })
+
+        # G100老版本内核小计
+        g100_old_total_target = sum(u.get('target', 0) for u in g100_old_units)
+        g100_old_total_expected = round(g100_old_total_target * progress_ratio, 1)
+        g100_old_total_actual = sum(u.get('actual', 0) for u in g100_old_units)
+        all_rows.append({
+            '业务': 'G100老版本内核（含驱动HAS）',
+            '业务Owner': '',
+            '作战单元': '【G100老版本内核漏测合计】',
+            'Owner': '',
+            '漏测目标': g100_old_total_target,
+            '预期漏测DI': f"{g100_old_total_expected:.1f}",
+            '当前漏测DI': round(g100_old_total_actual, 1),
+            '超标百分比': f"{((g100_old_total_actual - g100_old_total_expected) / g100_old_total_expected * 100):.0f}%" if g100_old_total_expected > 0 else "N/A"
+        })
+
+        # G100 V5版本
+        g100_v5 = business_lines.get('G100_V5版本', {})
+        g100_v5_units = g100_v5.get('sub_units', [])
+        if g100_v5_units:
+            for unit in g100_v5_units:
+                unit_target = unit.get('target', 0)
+                unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
+                all_rows.append({
+                    '业务': 'G100 V5版本',
+                    '业务Owner': '',
+                    '作战单元': unit.get('name', ''),
+                    'Owner': unit.get('owner', ''),
+                    '漏测目标': unit_target,
+                    '预期漏测DI': f"{unit_expected:.1f}",
+                    '当前漏测DI': unit.get('actual', 0),
+                    '超标百分比': f"{((unit.get('actual', 0) - unit_expected) / unit_expected * 100):.0f}%" if unit_expected > 0 else "N/A"
+                })
+
+        # 重点项目
+        key_projects = business_lines.get('重点项目', {})
+        key_units = key_projects.get('sub_units', [])
+        for unit in key_units:
+            unit_target = unit.get('target', 0)
+            unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
+            all_rows.append({
+                '业务': '重点项目',
+                '业务Owner': unit.get('business_owner', ''),
+                '作战单元': unit.get('name', ''),
+                'Owner': unit.get('owner', ''),
+                '漏测目标': unit_target,
+                '预期漏测DI': f"{unit_expected:.1f}",
+                '当前漏测DI': unit.get('actual', 0),
+                '超标百分比': f"{((unit.get('actual', 0) - unit_expected) / unit_expected * 100):.0f}%" if unit_expected > 0 else "N/A"
+            })
+
+        # 测试 - 合并功能测试和系统测试为内核测试
+        test_units = business_lines.get('测试', {}).get('sub_units', [])
+
+        # 查找功能测试和系统测试并合并
+        kernel_test_target = 0
+        kernel_test_actual = 0
+        other_test_units = []
+
+        for unit in test_units:
+            name = unit.get('name', '')
+            if name in ['功能测试', '系统测试', '内核测试']:
+                # 合并到内核测试
+                kernel_test_target += unit.get('target', 0)
+                kernel_test_actual += unit.get('actual', 0)
+            else:
+                other_test_units.append(unit)
+
+        # 添加合并后的内核测试行
+        if kernel_test_target > 0 or kernel_test_actual > 0:
+            kernel_expected = round(kernel_test_target * progress_ratio, 1) if kernel_test_target > 0 else 0
+            all_rows.append({
+                '业务': '测试',
+                '业务Owner': '郭琦',
+                '作战单元': '内核测试',
+                'Owner': '崔响灵/苏动',
+                '漏测目标': kernel_test_target,
+                '预期漏测DI': f"{kernel_expected:.1f}",
+                '当前漏测DI': kernel_test_actual,
+                '超标百分比': f"{((kernel_test_actual - kernel_expected) / kernel_expected * 100):.0f}%" if kernel_expected > 0 else "N/A"
+            })
+
+        # 添加其他测试单元（迁移工具测试、运维工具测试等）
+        for unit in other_test_units:
+            unit_target = unit.get('target', 0)
+            unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
+            all_rows.append({
+                '业务': '测试',
+                '业务Owner': '郭琦',
+                '作战单元': unit.get('name', ''),
+                'Owner': unit.get('owner', ''),
+                '漏测目标': unit_target,
+                '预期漏测DI': f"{unit_expected:.1f}",
+                '当前漏测DI': unit.get('actual', 0),
+                '超标百分比': f"{((unit.get('actual', 0) - unit_expected) / unit_expected * 100):.0f}%" if unit_expected > 0 else "N/A"
+            })
+
+        # 维优部
+        weiyou = business_lines.get('维优部', {})
+        weiyou_units = weiyou.get('sub_units', [])
+        for unit in weiyou_units:
+            unit_target = unit.get('target', 0)
+            unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
+            all_rows.append({
+                '业务': '维优部',
+                '业务Owner': '陈健华',
+                '作战单元': unit.get('name', ''),
+                'Owner': unit.get('owner', ''),
+                '漏测目标': unit_target,
+                '预期漏测DI': f"{unit_expected:.1f}",
+                '当前漏测DI': unit.get('actual', 0),
+                '超标百分比': f"{((unit.get('actual', 0) - unit_expected) / unit_expected * 100):.0f}%" if unit_expected > 0 else "N/A"
+            })
+
+        # 技术开发部
+        tech_units = business_lines.get('技术开发部', {}).get('sub_units', [])
+        for unit in tech_units:
+            unit_target = unit.get('target', 0)
+            unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
+            all_rows.append({
+                '业务': '技术开发部',
+                '业务Owner': '王正侣',
+                '作战单元': unit.get('name', ''),
+                'Owner': unit.get('owner', ''),
+                '漏测目标': unit_target,
+                '预期漏测DI': f"{unit_expected:.1f}",
+                '当前漏测DI': unit.get('actual', 0),
+                '超标百分比': f"{((unit.get('actual', 0) - unit_expected) / unit_expected * 100):.0f}%" if unit_expected > 0 else "N/A"
+            })
+
+        # 计算超标数据并展示
+        if all_rows:
+            exceed_rows = []
+            for row in all_rows:
+                # 跳过小计行
+                if '【' in str(row.get('作战单元', '')) or '合计' in str(row.get('作战单元', '')):
+                    continue
+                target = row.get('漏测目标', 0)
+                actual = row.get('当前漏测DI', 0)
+                expected = round(target * progress_ratio, 1) if target > 0 else 0
+                if expected > 0:
+                    exceed_pct = (actual - expected) / expected * 100
+                    if exceed_pct > 0.1:
+                        row['超标百分比'] = f"{exceed_pct:.0f}%"
+                        row['预期漏测DI'] = f"{expected:.1f}"
+                        exceed_rows.append(row)
+
+            if exceed_rows:
+                st.divider()
+                st.markdown("#### 🔴 漏测DI超标预警")
+                st.caption(f"以下 {len(exceed_rows)} 个作战单元漏测DI超标（超过预期值0.1%）")
+
+                # 展示超标卡片
+                exceed_cols = st.columns(min(len(exceed_rows), 4))
+                for idx, (col, row) in enumerate(zip(exceed_cols, exceed_rows)):
+                    with col:
+                        st.error(f"""
+                        **{row['作战单元']}**
+
+                        业务: {row['业务']}
+
+                        Owner: {row['Owner']}
+
+                        预期: {row['预期漏测DI']} | 实际: {row['当前漏测DI']}
+
+                        超标: **{row['超标百分比']}**
+                        """)
+
+                # 超标详情表格
+                df_exceed = pd.DataFrame(exceed_rows)
+                display_cols = ['业务', '作战单元', 'Owner', '预期漏测DI', '当前漏测DI', '超标百分比']
+                available_cols = [c for c in display_cols if c in df_exceed.columns]
+                st.dataframe(df_exceed[available_cols], use_container_width=True, hide_index=True)
+                st.divider()
 
         # 获取业务线数据
         business_lines = defect_escape.get('business_lines', {})

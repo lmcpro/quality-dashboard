@@ -214,10 +214,42 @@ def show_dashboard(data):
     with col4:
         downtime = qw_data['accident_rate'].get('downtime_minutes', 0)
         total_systems = qw_data['accident_rate'].get('total_systems', 3545)
+        accidents = qw_data['accident_rate'].get('accidents', [])
+
+        # 计算本年度事故统计（事故级别：P1紧急、P2高、P3中、P4低）
+        current_year = datetime.now().strftime('%Y')
+        # 支持多种月份格式匹配
+        year_accidents = []
+        for a in accidents:
+            accident_month = a.get('发生月份', '')
+            # 检查是否为本年度事故
+            if accident_month and accident_month.startswith(current_year):
+                year_accidents.append(a)
+
+        # 如果没有本年度事故，显示所有事故
+        display_accidents = year_accidents if year_accidents else accidents
+
+        p1_count = len([a for a in display_accidents if a.get('事故等级') == 'P1'])
+        p2_count = len([a for a in display_accidents if a.get('事故等级') == 'P2'])
+        p3_count = len([a for a in display_accidents if a.get('事故等级') == 'P3'])
+        p4_count = len([a for a in display_accidents if a.get('事故等级') == 'P4'])
+
+        # 构建delta文本（按优先级显示最高级别事故）
+        if p1_count > 0:
+            delta_text = f"{p1_count}例P1事故"
+        elif p2_count > 0:
+            delta_text = f"{p2_count}例P2事故"
+        elif p3_count > 0:
+            delta_text = f"{p3_count}例P3事故"
+        elif p4_count > 0:
+            delta_text = f"{p4_count}例P4事故"
+        else:
+            delta_text = "无事故"
+
         st.metric(
             label="业务停机时长",
             value=f"{downtime}分钟",
-            delta="2例P1事故"
+            delta=delta_text
         )
         if downtime <= 0:
             st.markdown('<span class="status-good">● 达标</span>', unsafe_allow_html=True)
@@ -277,13 +309,23 @@ def show_dashboard(data):
         accidents = accident_rate.get('accidents', [])
 
         if accidents:
-            # 获取本月事故
-            current_month = datetime.now().strftime('%Y-%m')
-            month_accidents = [a for a in accidents if current_month in a.get('发生月份', '')]
+            # 获取本年度事故（事故级别：P1紧急、P2高、P3中、P4低）
+            current_year = datetime.now().strftime('%Y')
+            # 支持多种月份格式匹配
+            year_accidents = []
+            for a in accidents:
+                accident_month = a.get('发生月份', '')
+                # 检查是否为本年度事故
+                if accident_month and accident_month.startswith(current_year):
+                    year_accidents.append(a)
+
+            # 如果没有本年度事故，显示所有事故
+            month_accidents = year_accidents if year_accidents else accidents
 
             if month_accidents:
                 total_accidents = len(month_accidents)
-                p0_p1 = len([a for a in month_accidents if a.get('事故等级') in ['P0', 'P1']])
+                p1_count = len([a for a in month_accidents if a.get('事故等级') == 'P1'])
+                p2_count = len([a for a in month_accidents if a.get('事故等级') == 'P2'])
                 recovered = len([a for a in month_accidents if a.get('是否恢复') == '已恢复'])
                 total_downtime = sum([a.get('业务停机时长', 0) for a in month_accidents])
 
@@ -291,7 +333,7 @@ def show_dashboard(data):
                 with c1:
                     st.metric("本月事故", total_accidents)
                 with c2:
-                    st.metric("P0/P1事故", p0_p1)
+                    st.metric("P1/P2事故", p1_count + p2_count)
                 with c3:
                     st.metric("已恢复", recovered)
                 with c4:
@@ -312,9 +354,18 @@ def show_dashboard(data):
     accidents = accident_rate.get('accidents', [])
 
     if accidents:
-        # 获取本月事故
-        current_month = datetime.now().strftime('%Y-%m')
-        month_accidents = [a for a in accidents if current_month in a.get('发生月份', '')]
+        # 获取本年度事故
+        current_year = datetime.now().strftime('%Y')
+        # 支持多种月份格式匹配
+        year_accidents = []
+        for a in accidents:
+            accident_month = a.get('发生月份', '')
+            # 检查是否为本年度事故
+            if accident_month and accident_month.startswith(current_year):
+                year_accidents.append(a)
+
+        # 如果没有本年度事故，显示所有事故
+        month_accidents = year_accidents if year_accidents else accidents
 
         if month_accidents:
             # 转换为DataFrame展示
@@ -419,13 +470,93 @@ def show_dashboard(data):
 
     # 风险预警区
     st.subheader("⚠️ 质量风险预警")
-    risks = data['version_quality']['risks']
 
-    risk_cols = st.columns(len(risks))
-    for idx, (col, risk) in enumerate(zip(risk_cols, risks)):
-        with col:
-            severity_color = {"高": "🔴", "中": "🟡", "低": "🟢"}.get(risk['severity'], "⚪")
-            st.info(f"{severity_color} **{risk['title']}**\n\n风险等级: {risk['severity']}\n\n影响范围: {risk['impact']}")
+    # 收集所有风险（包括漏测DI超标）
+    all_risks = []
+
+    # 1. 添加版本质量风险
+    version_risks = data['version_quality'].get('risks', [])
+    all_risks.extend(version_risks)
+
+    # 2. 检查漏测DI超标并添加为风险
+    qw_data = data.get('quality_work', {})
+    defect_escape = qw_data.get('defect_escape', {})
+    business_lines = defect_escape.get('business_lines', {})
+
+    # 计算日期比例（使用已经导入的datetime模块）
+    as_of_date_str = defect_escape.get('as_of_date', '2026-05-06')
+    try:
+        as_of_date = datetime.strptime(as_of_date_str, '%Y-%m-%d').date()
+    except:
+        as_of_date = datetime.now().date()
+    year_start = datetime(as_of_date.year, 1, 1).date()
+    day_of_year = (as_of_date - year_start).days + 1
+    year_days = 366 if as_of_date.year % 4 == 0 else 365
+    progress_ratio = day_of_year / year_days
+
+    # 检查各业务线超标情况
+    di_exceed_units = []
+    for business_name, business_data in business_lines.items():
+        sub_units = business_data.get('sub_units', [])
+        for unit in sub_units:
+            unit_target = unit.get('target', 0)
+            unit_actual = unit.get('actual', 0)
+            unit_expected = round(unit_target * progress_ratio, 1) if unit_target > 0 else 0
+            if unit_expected > 0:
+                exceed_pct = (unit_actual - unit_expected) / unit_expected * 100
+                if exceed_pct > 0.1:
+                    di_exceed_units.append({
+                        'business': business_name,
+                        'unit': unit.get('name', ''),
+                        'owner': unit.get('owner', ''),
+                        'expected': unit_expected,
+                        'actual': unit_actual,
+                        'exceed_pct': exceed_pct
+                    })
+
+    # 如果有漏测DI超标，添加为风险项
+    if di_exceed_units:
+        # 按超标比例排序，取最严重的3个
+        di_exceed_units.sort(key=lambda x: x['exceed_pct'], reverse=True)
+        top_exceeds = di_exceed_units[:3]
+
+        exceed_details = "\n".join([
+            f"• {u['unit']}(**+{u['exceed_pct']:.0f}%**)"
+            for u in top_exceeds
+        ])
+
+        all_risks.append({
+            'title': f'漏测DI超标 ({len(di_exceed_units)}个单元)',
+            'severity': '高' if len(di_exceed_units) >= 3 or any(u['exceed_pct'] > 50 for u in di_exceed_units) else '中',
+            'impact': f"研发质量风险",
+            'details': exceed_details
+        })
+
+    # 3. 检查总体漏测DI是否超标
+    current_di = defect_escape.get('current_di', 0)
+    expected_di = defect_escape.get('expected_di', 0)
+    if expected_di > 0 and current_di > expected_di * 1.1:
+        overall_exceed_pct = (current_di - expected_di) / expected_di * 100
+        all_risks.append({
+            'title': '总体漏测DI超标',
+            'severity': '高' if overall_exceed_pct > 30 else '中',
+            'impact': f'整体研发质量风险',
+            'details': f"当前: {current_di} | 预期: {expected_di} | 超标: +{overall_exceed_pct:.0f}%"
+        })
+
+    # 展示所有风险
+    if all_risks:
+        risk_cols = st.columns(len(all_risks))
+        for idx, (col, risk) in enumerate(zip(risk_cols, all_risks)):
+            with col:
+                severity_color = {"高": "🔴", "中": "🟡", "低": "🟢"}.get(risk['severity'], "⚪")
+                details = risk.get('details', '')
+                if details:
+                    st.info(f"{severity_color} **{risk['title']}**\n\n风险等级: {risk['severity']}\n\n影响范围: {risk['impact']}\n\n{details}")
+                else:
+                    st.info(f"{severity_color} **{risk['title']}**\n\n风险等级: {risk['severity']}\n\n影响范围: {risk['impact']}")
+    else:
+        st.success("✅ 当前无质量风险")
 
 # 根据选择显示不同板块
 data = st.session_state.data

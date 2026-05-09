@@ -169,19 +169,65 @@ def show_quality_work(data):
         st.plotly_chart(fig, use_container_width=True)
 
     with cols[1]:
-        # 客户详情表格 - 显示DI数据与年度目标一致
-        display_df = pd.DataFrame([
-            {
-                '客户名称': c['name'],
+        # 客户详情表格 - 自动从其他模块获取数据
+        # 1. 从漏测DI模块获取DI数据
+        defect_data = data.get('defect_escape', {})
+        project_di = defect_data.get('project_di', {})
+
+        # 2. 从现网问题模块获取问题数
+        prod_issues = data.get('production_issues', {})
+        issues_list = prod_issues.get('issues', [])
+
+        # 3. 从事故统计模块获取事故数
+        accident_data = data.get('accident_rate', {})
+        accidents = accident_data.get('accidents', [])
+
+        # 客户名称映射（用于匹配不同数据源中的客户名称）
+        customer_mapping = {
+            'zhgc': ['zhgc', 'ZHGC'],
+            '比亚迪': ['比亚迪', 'BYD', 'byd'],
+            '长江存储': ['长江存储', '长存', 'cxc', 'CXC']
+        }
+
+        # 构建客户详情数据
+        customer_details = []
+        for c in customer_data['customers']:
+            customer_name = c['name']
+            mapping_names = customer_mapping.get(customer_name, [customer_name])
+
+            # 从漏测DI获取数据
+            di_info = None
+            for di_name, di_data in project_di.items():
+                if any(name in di_name or di_name in name for name in mapping_names):
+                    di_info = di_data
+                    break
+
+            # 从现网问题统计问题数
+            issue_count = 0
+            for issue in issues_list:
+                issue_customer = issue.get('客户名称', '')
+                if any(name in issue_customer or issue_customer in name for name in mapping_names):
+                    issue_count += 1
+
+            # 从事故统计事故数
+            accident_count = 0
+            for accident in accidents:
+                accident_customer = accident.get('客户名称', '')
+                if any(name in accident_customer or accident_customer in name for name in mapping_names):
+                    accident_count += 1
+
+            customer_details.append({
+                '客户名称': customer_name,
                 '质量评分': c['score'],
-                '漏测DI': c.get('di', '-'),
-                'DI目标': c.get('di_target', '-'),
-                'DI状态': c.get('di_status', '-'),
-                '本月问题数': c['issues'],
+                '漏测DI': di_info['actual'] if di_info else c.get('di', '-'),
+                'DI目标': di_info['target'] if di_info else c.get('di_target', '-'),
+                'DI状态': di_info['status'] if di_info else c.get('di_status', '-'),
+                '现网问题数': issue_count,
+                '事故数': accident_count,
                 '趋势': c['trend']
-            }
-            for c in customer_data['customers']
-        ])
+            })
+
+        display_df = pd.DataFrame(customer_details)
         st.dataframe(
             display_df,
             use_container_width=True,
