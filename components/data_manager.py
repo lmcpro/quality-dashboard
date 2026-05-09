@@ -970,6 +970,7 @@ def show_data_manager():
                     
                     imported_count = 0
                     last_product_line = ''  # 记录上一行的产品线
+                    last_issue_type = ''  # 记录上一行的问题分类
                     for line in lines:
                         parts = line.split('\t')
                         if len(parts) >= 8:
@@ -983,7 +984,13 @@ def show_data_manager():
                             else:
                                 product_line = last_product_line if last_product_line else '未分类'
                             
-                            issue_type = parts[1].strip() if parts[1].strip() else '一般问题'
+                            # 问题分类为空时继承上一行（Excel合并单元格的情况）
+                            if parts[1].strip():
+                                issue_type = parts[1].strip()
+                                last_issue_type = issue_type
+                            else:
+                                issue_type = last_issue_type if last_issue_type else '一般问题'
+                            
                             customer = parts[2].strip() if parts[2].strip() else '未知客户'
                             severity = parts[3].strip() if parts[3].strip() else '一般'
                             ticket_id = parts[4].strip() if len(parts) > 4 and parts[4].strip() else ''
