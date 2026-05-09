@@ -962,12 +962,18 @@ def show_data_manager():
             if st.button("📥 解析并导入", type="primary", key="btn_parse_import"):
                 if paste_data.strip():
                     lines = paste_data.strip().split('\n')
+                    
+                    # 先清除该周的现有数据，避免重复
+                    target_week = week_input.upper()
+                    existing_other_weeks = [i for i in issues_list if i.get('周次') != target_week]
+                    issues_list = existing_other_weeks
+                    
                     imported_count = 0
                     for line in lines:
                         parts = line.split('\t')
                         if len(parts) >= 8:
                             issue = {
-                                '周次': week_input.upper(),
+                                '周次': target_week,
                                 '产品线': parts[0].strip(),
                                 '问题分类': parts[1].strip(),
                                 '客户名称': parts[2].strip(),
@@ -981,13 +987,15 @@ def show_data_manager():
                             }
                             issues_list.append(issue)
                             imported_count += 1
-
+                    
+                    # 更新数据
+                    prod_issues['issues'] = issues_list
                     qw_data['production_issues'] = prod_issues
                     st.session_state.data['quality_work'] = qw_data
                     save_data_to_file(st.session_state.data)
                     # 保存当前导入的周次到session_state，以便自动选中
-                    st.session_state['last_imported_week'] = week_input.upper()
-                    st.success(f"✅ 成功导入 {imported_count} 条现网问题到 {week_input.upper()}！")
+                    st.session_state['last_imported_week'] = target_week
+                    st.success(f"✅ 成功导入 {imported_count} 条现网问题到 {target_week}！（已清除该周旧数据）")
                     st.rerun()
                 else:
                     st.warning("请先粘贴数据")
