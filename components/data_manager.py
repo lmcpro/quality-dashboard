@@ -972,17 +972,28 @@ def show_data_manager():
                     for line in lines:
                         parts = line.split('\t')
                         if len(parts) >= 8:
+                            # 获取字段值，为空时提供默认值
+                            product_line = parts[0].strip() if parts[0].strip() else '未分类'
+                            issue_type = parts[1].strip() if parts[1].strip() else '一般问题'
+                            customer = parts[2].strip() if parts[2].strip() else '未知客户'
+                            severity = parts[3].strip() if parts[3].strip() else '一般'
+                            env = parts[4].strip() if parts[4].strip() else '未知'
+                            version = parts[5].strip() if parts[5].strip() else '-'
+                            desc = parts[6].strip() if parts[6].strip() else '-'
+                            status = parts[7].strip() if len(parts) > 7 and parts[7].strip() else '待处理'
+                            fanyi = parts[8].strip() == '是' if len(parts) > 8 and parts[8].strip() else False
+                            
                             issue = {
                                 '周次': target_week,
-                                '产品线': parts[0].strip(),
-                                '问题分类': parts[1].strip(),
-                                '客户名称': parts[2].strip(),
-                                '严重程度': parts[3].strip(),
-                                '环境': parts[4].strip(),
-                                '版本': parts[5].strip(),
-                                '问题描述': parts[6].strip(),
-                                '状态': parts[7].strip() if len(parts) > 7 else '待处理',
-                                '举一反三': parts[8].strip() == '是' if len(parts) > 8 else False,
+                                '产品线': product_line,
+                                '问题分类': issue_type,
+                                '客户名称': customer,
+                                '严重程度': severity,
+                                '环境': env,
+                                '版本': version,
+                                '问题描述': desc,
+                                '状态': status,
+                                '举一反三': fanyi,
                                 '登记时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                             }
                             issues_list.append(issue)
