@@ -6,6 +6,7 @@ import json
 from datetime import datetime
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 
 DATA_FILE = "data/quality_data.json"
 
@@ -54,6 +55,7 @@ def show_data_manager():
         "⚠️ 事故统计",
         "🎯 研发TOP质量事项",
         "🌐 现网问题",
+        "🔁 闭环跟踪",
         "💾 保存/导出"
     ])
 
@@ -964,8 +966,10 @@ def show_data_manager():
                 task_name = task.get('name', '未命名事项')
                 # 检查是否已存在
                 if task_name not in top_issues:
+                    # 计算下一个编号（排除summary）
+                    existing_count = len([k for k in top_issues.keys() if k != 'summary'])
                     top_issues[task_name] = {
-                        'id': f"TOP-{len(top_issues):03d}",
+                        'id': f"TOP-{existing_count + 1:03d}",
                         'name': task_name,
                         'owner': task.get('owner', ''),
                         'progress': [{
@@ -981,10 +985,85 @@ def show_data_manager():
             qi_data['top_issues'] = top_issues
             st.info("🔄 已自动将旧版改进任务数据迁移到新的TOP事项结构")
 
-        # 汇总表数据
-        if 'summary' not in top_issues:
-            top_issues['summary'] = []
-        summary_list = top_issues.get('summary', [])
+        # 汇总表数据 - 从实际的TOP事项数据生成
+        # 获取所有TOP事项名称（排除summary和事故复盘闭环跟进）
+        top_issue_names = [k for k in top_issues.keys() if k != 'summary' and k != '事故复盘闭环跟进']
+
+        # 重新编号（从1开始）并修正TOP3名称 - 只在ID缺失或重复时执行
+        existing_ids = set()
+        needs_renumber = False
+        for name in top_issue_names:
+            issue_id = top_issues[name].get('id', '')
+            if not issue_id or issue_id in existing_ids:
+                needs_renumber = True
+                break
+            existing_ids.add(issue_id)
+
+        if needs_renumber:
+            for idx, name in enumerate(top_issue_names):
+                issue_data = top_issues[name]
+                # 重新编号为TOP-001, TOP-002, TOP-003, TOP-004
+                issue_data['id'] = f"TOP-{idx + 1:03d}"
+
+        # 修正TOP3名称（独立处理，不影响编号）
+        for idx, name in enumerate(top_issue_names):
+            if idx == 2 and name == "产品需求边界清晰化评估":
+                # 重命名key
+                new_name = "需求交付质量标准"
+                top_issues[new_name] = top_issues[name]
+                top_issue_names[idx] = new_name
+                # 删除旧key
+                if name in top_issues and name != new_name:
+                    del top_issues[name]
+
+        # 辅助函数：标准化日期格式为 YYYY-MM-DD
+        def normalize_date(date_str):
+            """将各种日期格式统一转换为 YYYY-MM-DD"""
+            if not date_str or not isinstance(date_str, str):
+                return date_str
+
+            import re
+            date_str = date_str.strip()
+
+            # 匹配 MM/DD 或 M/D 格式 (如 5/13, 05/13)
+            match = re.match(r'^(\d{1,2})/(\d{1,2})$', date_str)
+            if match:
+                month, day = match.groups()
+                return f"2026-{int(month):02d}-{int(day):02d}"
+
+            # 匹配 MM-DD 或 M-D 格式 (如 5-13, 05-13)
+            match = re.match(r'^(\d{1,2})-(\d{1,2})$', date_str)
+            if match:
+                month, day = match.groups()
+                return f"2026-{int(month):02d}-{int(day):02d}"
+
+            # 匹配 YYYY-MM-DD 格式，将2024改为2026
+            if date_str.startswith('2024'):
+                return '2026' + date_str[4:]
+
+            return date_str
+
+        # 动态生成汇总表
+        summary_list = []
+        for name in top_issue_names:
+            issue_data = top_issues[name]
+            progress_list = issue_data.get('progress', [])
+            # 转换所有进度的日期
+            for p in progress_list:
+                if '日期' in p:
+                    p['日期'] = normalize_date(p['日期'])
+            latest_progress = progress_list[-1] if progress_list else None
+            summary_list.append({
+                '事项编号': issue_data.get('id', ''),
+                '事项名称': name,
+                '负责人': issue_data.get('owner', ''),
+                '当前进度': latest_progress.get('进度', '0%') if latest_progress else '0%',
+                '最新状态': latest_progress.get('状态说明', '进行中') if latest_progress else '新创建',
+                '更新时间': normalize_date(latest_progress.get('日期', '')) if latest_progress else ''
+            })
+
+        # 保留原有的summary用于兼容
+        top_issues['summary'] = summary_list
 
         st.markdown("**📋 TOP事项汇总表**")
         st.caption("展示所有TOP事项的最新状态")
@@ -998,10 +1077,10 @@ def show_data_manager():
 
             summary_config = {
                 '事项编号': st.column_config.TextColumn('事项编号', width='small', disabled=True),
-                '事项名称': st.column_config.TextColumn('事项名称', width='large', disabled=True),
+                '事项名称': st.column_config.TextColumn('事项名称', width='medium', disabled=True),
                 '负责人': st.column_config.TextColumn('负责人', width='small', disabled=True),
                 '当前进度': st.column_config.TextColumn('当前进度', width='small', disabled=True),
-                '最新状态': st.column_config.TextColumn('最新状态', width='medium', disabled=True),
+                '最新状态': st.column_config.TextColumn('最新状态', width='large', disabled=True),
                 '更新时间': st.column_config.TextColumn('更新时间', width='small', disabled=True),
             }
 
@@ -1021,9 +1100,8 @@ def show_data_manager():
         st.markdown("**📊 各TOP事项详细进度**")
         st.caption("为每个TOP事项记录详细进度，最新记录会自动同步到汇总表")
 
-        # 获取所有TOP事项名称
-        top_names = list(top_issues.keys())
-        top_names = [n for n in top_names if n != 'summary']
+        # 使用与汇总表相同的TOP事项列表（已重新编号和修正名称）
+        top_names = top_issue_names
 
         if top_names:
             # 为每个TOP事项创建子标签页
@@ -1049,20 +1127,55 @@ def show_data_manager():
                         else:
                             st.write(f"**当前进度:** 0%")
 
-                    # 进度记录表格
-                    if progress_list:
-                        df_progress = pd.DataFrame(progress_list)
+                    # 进度记录表格（包含子项）
+                    # 合并主进度和子项进度
+                    all_progress = []
+
+                    # 添加主进度记录
+                    for p in progress_list:
+                        if '日期' in p:
+                            p['日期'] = normalize_date(p['日期'])
+                        all_progress.append({
+                            '类型': '主项',
+                            '子项名称': '',
+                            '日期': p.get('日期', ''),
+                            '进度': p.get('进度', ''),
+                            '状态说明': p.get('状态说明', ''),
+                            '下一步计划': p.get('下一步计划', ''),
+                            '登记人': p.get('登记人', '')
+                        })
+
+                    # 添加子项进度记录
+                    if 'sub_items' in top_data:
+                        for sub in top_data['sub_items']:
+                            if '日期' in sub:
+                                sub['日期'] = normalize_date(sub['日期'])
+                            all_progress.append({
+                                '类型': '子项',
+                                '子项名称': sub.get('子项名称', ''),
+                                '日期': sub.get('日期', ''),
+                                '进度': sub.get('进度', ''),
+                                '状态说明': sub.get('状态说明', ''),
+                                '下一步计划': sub.get('下一步计划', ''),
+                                '负责人': sub.get('负责人', '')
+                            })
+
+                    if all_progress:
+                        df_progress = pd.DataFrame(all_progress)
                         # 确保所有列都存在
-                        for col in ['日期', '进度', '状态说明', '下一步计划', '登记人']:
+                        for col in ['类型', '子项名称', '日期', '进度', '状态说明', '下一步计划', '登记人', '负责人']:
                             if col not in df_progress.columns:
                                 df_progress[col] = ''
 
                         progress_config = {
+                            '类型': st.column_config.SelectboxColumn('类型', options=['主项', '子项'], width='small'),
+                            '子项名称': st.column_config.TextColumn('子项名称', width='medium'),
                             '日期': st.column_config.TextColumn('日期', width='small'),
                             '进度': st.column_config.TextColumn('进度', width='small', help='如: 30%, 50%'),
                             '状态说明': st.column_config.TextColumn('状态说明', width='large'),
-                            '下一步计划': st.column_config.TextColumn('下一步计划', width='large'),
+                            '下一步计划': st.column_config.TextColumn('下一步计划', width='medium'),
                             '登记人': st.column_config.TextColumn('登记人', width='small'),
+                            '负责人': st.column_config.TextColumn('负责人', width='small'),
                         }
 
                         edited_progress = st.data_editor(
@@ -1072,11 +1185,33 @@ def show_data_manager():
                             use_container_width=True,
                             hide_index=True,
                             key=f"editor_progress_{top_name}",
-                            height=300
+                            height=400
                         )
 
                         if st.button(f"💾 保存 {top_name} 进度", type="primary", use_container_width=True, key=f"save_progress_{top_name}"):
-                            top_issues[top_name]['progress'] = edited_progress.to_dict('records')
+                            # 拆分主项和子项
+                            main_progress = []
+                            sub_items = []
+                            for row in edited_progress.to_dict('records'):
+                                if row.get('类型') == '子项':
+                                    sub_items.append({
+                                        '子项名称': row.get('子项名称', ''),
+                                        '日期': row.get('日期', ''),
+                                        '进度': row.get('进度', ''),
+                                        '状态说明': row.get('状态说明', ''),
+                                        '下一步计划': row.get('下一步计划', ''),
+                                        '负责人': row.get('负责人', '') or row.get('登记人', '')
+                                    })
+                                else:
+                                    main_progress.append({
+                                        '日期': row.get('日期', ''),
+                                        '进度': row.get('进度', ''),
+                                        '状态说明': row.get('状态说明', ''),
+                                        '下一步计划': row.get('下一步计划', ''),
+                                        '登记人': row.get('登记人', '') or row.get('负责人', '')
+                                    })
+                            top_issues[top_name]['progress'] = main_progress
+                            top_issues[top_name]['sub_items'] = sub_items
 
                             # 更新汇总表
                             latest = edited_progress.iloc[-1] if not edited_progress.empty else None
@@ -1107,6 +1242,8 @@ def show_data_manager():
                             st.rerun()
                     else:
                         st.info(f"暂无 {top_name} 的进度记录")
+
+                    st.divider()
 
                     # 新增进度记录表单
                     with st.form(f"add_progress_form_{top_name}"):
@@ -1302,15 +1439,24 @@ def show_data_manager():
         # ========== 2. 刚导入的问题列表（按周筛选、可编辑） ==========
         st.markdown("#### 📊 问题列表（按周筛选编辑）")
         
-        # 获取所有周次并排序
-        all_weeks = sorted(list(set([i.get('周次', '') for i in issues_list if i.get('周次', '')])), key=lambda x: x)
+        # 获取所有周次并排序（按周次数字排序）
+        def extract_week_num(week_str):
+            """提取周次数字，支持W1, W19, W7&8等格式"""
+            import re
+            match = re.search(r'W(\d+)', week_str.upper())
+            return int(match.group(1)) if match else 0
+
+        all_weeks = sorted(list(set([i.get('周次', '') for i in issues_list if i.get('周次', '')])),
+                          key=lambda x: extract_week_num(x))
 
         if all_weeks:
             # 使用列布局：周次选择 + 统计卡片
             col_week_select, col_stats = st.columns([1, 3])
             
+            # 默认选中最新一周（最后一个）
+            default_week_index = len(all_weeks) - 1 if all_weeks else 0
+
             # 检查是否有刚导入的周次，如果有则默认选中
-            default_week_index = 0
             if 'last_imported_week' in st.session_state:
                 last_week = st.session_state['last_imported_week']
                 if last_week in all_weeks:
@@ -1409,8 +1555,10 @@ def show_data_manager():
                     key_customers[cust] = key_customers.get(cust, 0) + 1
 
             # 环境分布
+            # 生产/准生产环境
             prod_env_count = len([i for i in week_issues if '生产' in i.get('环境', '') or '准生产' in i.get('环境', '')])
-            test_env_count = len([i for i in week_issues if '测试' in i.get('环境', '')])
+            # 非生产环境（测试、POC、生态适配等）
+            non_prod_env_count = len([i for i in week_issues if not ('生产' in i.get('环境', '') or '准生产' in i.get('环境', ''))])
 
             # 显示分析报告
             report_text = f"""
@@ -1420,13 +1568,13 @@ def show_data_manager():
 
 2、重点客户涉及{len(key_customers)}个：{', '.join([f'{k}({v})' for k, v in key_customers.items()]) if key_customers else '无'}
 
-3、环境分布：{'生产/准生产环境' if prod_env_count > 0 else '测试环境'}{prod_env_count if prod_env_count > 0 else test_env_count}个{'，测试环境' + str(test_env_count) if prod_env_count > 0 and test_env_count > 0 else ''}
+3、环境分布：生产/准生产环境{prod_env_count}个，非生产环境{non_prod_env_count}个
 """
 
             st.info(report_text)
 
             # 下载报告按钮
-            report_for_download = f"客户问题分析{selected_week}：\n\n1、新增{total}个现网问题，{len(key_customer_issues)}个重点客户问题，{len(severe_issues)}个严重问题\n\n2、重点客户涉及{len(key_customers)}个：{', '.join([f'{k}({v})' for k, v in key_customers.items()]) if key_customers else '无'}\n\n3、环境分布：{'生产/准生产环境' if prod_env_count > 0 else '测试环境'}{prod_env_count if prod_env_count > 0 else test_env_count}个{'，测试环境' + str(test_env_count) if prod_env_count > 0 and test_env_count > 0 else ''}\n"
+            report_for_download = f"客户问题分析{selected_week}：\n\n1、新增{total}个现网问题，{len(key_customer_issues)}个重点客户问题，{len(severe_issues)}个严重问题\n\n2、重点客户涉及{len(key_customers)}个：{', '.join([f'{k}({v})' for k, v in key_customers.items()]) if key_customers else '无'}\n\n3、环境分布：生产/准生产环境{prod_env_count}个，非生产环境{non_prod_env_count}个\n"
 
             st.download_button(
                 label="📄 下载分析报告",
@@ -1486,38 +1634,214 @@ def show_data_manager():
             chart_col1, chart_col2 = st.columns(2)
             
             with chart_col1:
-                # 产品线分布
+                # 产品线分布 - Top 3 柱状图 + 其他
                 product_lines = {}
                 for issue in issues_list:
                     pl = issue.get('产品线', '未知')
                     product_lines[pl] = product_lines.get(pl, 0) + 1
 
                 if product_lines:
-                    fig_pl = px.pie(
-                        values=list(product_lines.values()),
-                        names=list(product_lines.keys()),
-                        title="产品线分布"
+                    # 按问题数排序，取Top 3
+                    sorted_products = sorted(product_lines.items(), key=lambda x: x[1], reverse=True)
+                    top3 = sorted_products[:3]
+                    others = sorted_products[3:]
+
+                    # 准备图表数据
+                    chart_data = {'产品线': [], '问题数': [], '类型': []}
+                    for name, count in top3:
+                        chart_data['产品线'].append(name)
+                        chart_data['问题数'].append(count)
+                        chart_data['类型'].append('Top 3')
+
+                    # 如果有其他产品线，合并为"其他"
+                    if others:
+                        others_count = sum(count for _, count in others)
+                        chart_data['产品线'].append(f'其他({len(others)}个)')
+                        chart_data['问题数'].append(others_count)
+                        chart_data['类型'].append('其他')
+
+                    # 创建DataFrame
+                    df_chart = pd.DataFrame(chart_data)
+
+                    # 使用柱状图展示
+                    fig_pl = px.bar(
+                        df_chart,
+                        x='产品线',
+                        y='问题数',
+                        color='类型',
+                        color_discrete_map={'Top 3': '#1f77b4', '其他': '#cccccc'},
+                        title="产品线分布 (Top 3)",
+                        text='问题数'
                     )
-                    fig_pl.update_layout(height=280, showlegend=True)
+                    fig_pl.update_traces(
+                        textposition='outside',
+                        textfont=dict(size=14, color='black'),
+                        cliponaxis=False
+                    )
+                    fig_pl.update_layout(
+                        height=280,
+                        showlegend=True,
+                        xaxis_title=None,
+                        yaxis_title='问题数',
+                        margin=dict(t=40, b=20, l=20, r=20)
+                    )
                     st.plotly_chart(fig_pl, use_container_width=True, key="chart_pl_dist")
+
+                    # 显示Top 3详细信息
+                    if top3:
+                        st.caption("**Top 3 产品线详情:**")
+                        top3_cols = st.columns(min(len(top3), 3))
+                        for idx, (col, (name, count)) in enumerate(zip(top3_cols, top3)):
+                            pct = count / sum(product_lines.values()) * 100
+                            col.metric(f"#{idx+1} {name}", f"{count}个", f"{pct:.1f}%")
             
             with chart_col2:
-                # 严重程度分布
+                # 严重程度分布 - 饼图
                 severity_dist = {}
                 for issue in issues_list:
                     sev = issue.get('严重程度', '未知')
                     severity_dist[sev] = severity_dist.get(sev, 0) + 1
 
                 if severity_dist:
-                    fig_sev = px.bar(
-                        x=list(severity_dist.keys()),
-                        y=list(severity_dist.values()),
+                    # 颜色映射
+                    color_map = {
+                        '致命': '#dc3545',
+                        '严重': '#ff6b6b',
+                        '一般': '#feca57',
+                        '轻微': '#1dd1a1',
+                        '提示': '#6c757d',
+                        '建议': '#6c757d',
+                        '未知': '#adb5bd'
+                    }
+                    colors = [color_map.get(k, '#adb5bd') for k in severity_dist.keys()]
+
+                    fig_sev = px.pie(
+                        values=list(severity_dist.values()),
+                        names=list(severity_dist.keys()),
                         title="严重程度分布",
                         color=list(severity_dist.keys()),
-                        color_discrete_map={'严重': '#ff6b6b', '一般': '#feca57', '轻微': '#1dd1a1'}
+                        color_discrete_map=color_map,
                     )
-                    fig_sev.update_layout(height=280, showlegend=False)
+                    # 在饼图上显示数量和百分比
+                    fig_sev.update_traces(
+                        textinfo='value+percent',
+                        textfont=dict(size=12),
+                        insidetextorientation='radial'
+                    )
+                    fig_sev.update_layout(
+                        height=280,
+                        showlegend=True,
+                        legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
+                        margin=dict(t=40, b=60, l=20, r=20)
+                    )
                     st.plotly_chart(fig_sev, use_container_width=True, key="chart_sev_dist")
+
+            # 新增：产品线重点客户问题占比分析
+            st.markdown("#### 📊 产品线重点客户问题占比")
+
+            # 统计每个产品线的重点客户问题数
+            product_key_customer = {}
+            product_total = {}
+            for issue in issues_list:
+                pl = issue.get('产品线', '未知')
+                if pl not in product_total:
+                    product_total[pl] = 0
+                    product_key_customer[pl] = 0
+                product_total[pl] += 1
+                if issue.get('问题分类') == '重点客户问题':
+                    product_key_customer[pl] += 1
+
+            if product_total:
+                # 准备数据：按重点客户问题数排序，展示所有产品线
+                sorted_products = sorted(product_total.keys(),
+                                         key=lambda x: product_total[x],
+                                         reverse=True)
+
+                chart_data = []
+                for pl in sorted_products:
+                    total = product_total[pl]
+                    key_count = product_key_customer.get(pl, 0)
+                    non_key_count = total - key_count
+                    key_pct = key_count / total * 100 if total > 0 else 0
+                    chart_data.append({
+                        '产品线': pl,
+                        '重点客户问题': key_count,
+                        '非重点客户问题': non_key_count,
+                        '重点客户占比': f"{key_pct:.1f}%"
+                    })
+
+                df_chart = pd.DataFrame(chart_data)
+
+                # 创建堆叠柱状图
+                import plotly.graph_objects as pgo
+                fig_key = pgo.Figure()
+
+                # 准备数据
+                products = df_chart['产品线'].tolist()
+                key_counts = df_chart['重点客户问题'].tolist()
+                non_key_counts = df_chart['非重点客户问题'].tolist()
+                key_pcts = [(k / (k + nk) * 100) if (k + nk) > 0 else 0 for k, nk in zip(key_counts, non_key_counts)]
+
+                # 添加非重点客户问题（底部）
+                fig_key.add_trace(pgo.Bar(
+                    name='非重点客户问题',
+                    x=products,
+                    y=non_key_counts,
+                    marker_color='#e9ecef',
+                    text=[f'{v}' if v > 0 else '' for v in non_key_counts],
+                    textposition='inside',
+                    textfont=dict(size=11)
+                ))
+
+                # 添加重点客户问题（顶部），标注数量和占比
+                key_texts = []
+                for k, pct in zip(key_counts, key_pcts):
+                    if k > 0:
+                        if pct > 50:
+                            key_texts.append(f'{k}<br><b>{pct:.1f}%⚠️</b>')
+                        else:
+                            key_texts.append(f'{k}<br>({pct:.1f}%)')
+                    else:
+                        key_texts.append('')
+
+                fig_key.add_trace(pgo.Bar(
+                    name='重点客户问题',
+                    x=products,
+                    y=key_counts,
+                    marker_color=['#dc3545' if pct > 50 else '#ff6b6b' for pct in key_pcts],
+                    text=key_texts,
+                    textposition='inside',
+                    textfont=dict(size=11, color='white'),
+                    insidetextanchor='middle'
+                ))
+
+                fig_key.update_layout(
+                    title="产品线 - 重点客户问题分布",
+                    height=300,
+                    barmode='stack',
+                    showlegend=True,
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.3),
+                    xaxis_title=None,
+                    yaxis_title='问题数',
+                    margin=dict(t=40, b=60, l=20, r=20)
+                )
+                st.plotly_chart(fig_key, use_container_width=True, key="chart_key_customer_dist")
+
+                # 显示高占比警告
+                high_pct_products = [(pl, pct) for pl, pct in zip(products, key_pcts) if pct > 50]
+                if high_pct_products:
+                    warning_text = "🔴 **高占比警告**: " + "，".join([f"{pl}({pct:.1f}%)" for pl, pct in high_pct_products])
+                    st.warning(warning_text)
+
+                # 显示详细数据表格
+                with st.expander("📋 查看详细数据"):
+                    df_display = df_chart.copy()
+                    df_display['总问题数'] = df_display['重点客户问题'] + df_display['非重点客户问题']
+                    st.dataframe(
+                        df_display[['产品线', '总问题数', '重点客户问题', '重点客户占比']],
+                        use_container_width=True,
+                        hide_index=True
+                    )
         else:
             st.info("暂无数据可分析")
 
@@ -1564,14 +1888,57 @@ def show_data_manager():
                     with st.form("fanyi_form"):
                         st.caption(f"选中缺陷: {selected_issue.get('问题单号')} - {selected_issue.get('客户名称')}")
                         st.text(f"问题描述: {selected_issue.get('问题描述', '')[:50]}...")
-                        
-                        col_a, col_b = st.columns(2)
-                        with col_a:
-                            fanyi_action = st.text_input("改进行动", placeholder="描述改进行动")
-                            fanyi_scope = st.text_input("影响范围", placeholder="如：G100全系列")
-                        with col_b:
+
+                        # 第一行：是否已知问题、承接测试团队
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            is_known_issue = st.selectbox(
+                                "是否已知问题？",
+                                options=["请选择", "已知问题", "新问题"],
+                                index=0
+                            )
+                        with col2:
+                            test_team = st.selectbox(
+                                "承接测试团队",
+                                options=["请选择", "内核测试", "工具测试"],
+                                index=0
+                            )
+
+                        # 第二行：问题初步定性、影响程度
+                        col3, col4 = st.columns(2)
+                        with col3:
+                            issue_type = st.selectbox(
+                                "问题初步定性",
+                                options=["请选择", "需求代码引入分析", "研发流程缺失", "不稳定特性", "其他因素"],
+                                index=0
+                            )
+                        with col4:
+                            impact_level = st.selectbox(
+                                "影响程度",
+                                options=["请选择", "严重-急需输出高风险", "一般-风险可控", "暂未确定"],
+                                index=0
+                            )
+
+                        # 第三行：举一反三改进方向（多选）
+                        improvement_direction = st.multiselect(
+                            "举一反三改进方向（可多选）",
+                            options=["代码加固", "测试加固", "流程优化"],
+                            default=[]
+                        )
+
+                        # 第四行：预计闭环时间、负责人
+                        col5, col6 = st.columns(2)
+                        with col5:
+                            close_time = st.text_input("预计闭环时间", placeholder="如：2025-06-30")
+                        with col6:
                             fanyi_owner = st.text_input("负责人")
-                            fanyi_deadline = st.text_input("截止日期", placeholder="如：2025-06-30")
+
+                        # 第五行：改进行动、影响范围
+                        col7, col8 = st.columns(2)
+                        with col7:
+                            fanyi_action = st.text_input("改进行动", placeholder="描述改进行动")
+                        with col8:
+                            fanyi_scope = st.text_input("影响范围", placeholder="如：G100全系列")
 
                         submitted = st.form_submit_button("💾 保存举一反三", use_container_width=True)
 
@@ -1584,12 +1951,18 @@ def show_data_manager():
                             fanyi_data['items'].append({
                                 'source': selected_issue.get('客户名称', ''),
                                 'defect_id': selected_issue.get('问题单号', ''),
+                                'is_known_issue': is_known_issue if is_known_issue != "请选择" else "",
+                                'test_team': test_team if test_team != "请选择" else "",
+                                'issue_type': issue_type if issue_type != "请选择" else "",
+                                'impact_level': impact_level if impact_level != "请选择" else "",
+                                'improvement_direction': '、'.join(improvement_direction) if improvement_direction else "",
+                                'close_time': close_time,
                                 'action': fanyi_action,
                                 'scope': fanyi_scope,
                                 'status': '进行中',
                                 'progress': 0,
                                 'owner': fanyi_owner,
-                                'deadline': fanyi_deadline
+                                'deadline': close_time
                             })
                             fanyi_data['total'] += 1
                             fanyi_data['pending'] += 1
@@ -1604,46 +1977,6 @@ def show_data_manager():
         else:
             st.info("暂无现网问题数据")
 
-        # 显示已录入的举一反三列表
-        st.markdown("#### 📋 已录入举一反三列表")
-        qi_data = data.get('quality_improvement', {})
-        fanyi_data = qi_data.get('举一反三', {})
-        fanyi_items = fanyi_data.get('items', [])
-
-        if fanyi_items:
-            # 转换为DataFrame展示
-            fanyi_df = pd.DataFrame(fanyi_items)
-            # 选择要显示的列
-            display_cols = ['defect_id', 'source', 'action', 'scope', 'status', 'progress', 'owner', 'deadline']
-            # 过滤存在的列
-            available_cols = [c for c in display_cols if c in fanyi_df.columns]
-            # 重命名列
-            rename_map = {
-                'defect_id': '缺陷ID',
-                'source': '来源客户',
-                'action': '改进行动',
-                'scope': '影响范围',
-                'status': '状态',
-                'progress': '进度%',
-                'owner': '负责人',
-                'deadline': '截止日期'
-            }
-            fanyi_display = fanyi_df[available_cols].rename(columns={k: v for k, v in rename_map.items() if k in available_cols})
-            st.dataframe(fanyi_display, use_container_width=True, hide_index=True)
-
-            # 统计信息
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("总任务数", len(fanyi_items))
-            with col2:
-                completed = len([i for i in fanyi_items if i.get('status') == '已完成'])
-                st.metric("已完成", completed)
-            with col3:
-                pending = len([i for i in fanyi_items if i.get('status') != '已完成'])
-                st.metric("进行中", pending)
-        else:
-            st.info("暂无已录入的举一反三数据")
-
         # ========== 5. 现网问题周趋势 ==========
         st.markdown("#### 📊 现网问题周趋势")
 
@@ -1653,7 +1986,8 @@ def show_data_manager():
                 week = issue.get('周次', '未知')
                 week_counts[week] = week_counts.get(week, 0) + 1
 
-            sorted_weeks = sorted(week_counts.keys())
+            # 使用相同的周次排序逻辑
+            sorted_weeks = sorted(week_counts.keys(), key=lambda x: extract_week_num(x))
             trend_data = [{'周次': w, '问题数': week_counts[w]} for w in sorted_weeks]
             df_trend = pd.DataFrame(trend_data)
 
@@ -1685,7 +2019,7 @@ def show_data_manager():
         if issues_list and week_stats:
             # 使用表格展示各周汇总
             summary_data = []
-            for week in sorted(week_stats.keys()):
+            for week in sorted(week_stats.keys(), key=lambda x: extract_week_num(x)):
                 stats = week_stats[week]
                 summary_data.append({
                     '周次': week,
@@ -1723,7 +2057,8 @@ def show_data_manager():
 
         if issues_list:
             # 使用标签页展示各周明细
-            all_weeks = sorted(list(set([i.get('周次', '') for i in issues_list if i.get('周次', '')])))
+            all_weeks = sorted(list(set([i.get('周次', '') for i in issues_list if i.get('周次', '')])),
+                              key=lambda x: extract_week_num(x))
             
             if all_weeks:
                 week_tabs = st.tabs(all_weeks)
@@ -1738,4 +2073,223 @@ def show_data_manager():
                         st.caption(f"{week} 共 {len(week_issues)} 个问题")
         else:
             st.info("暂无明细数据")
+
+    # ==================== 闭环跟踪 ====================
+    with tabs[5]:
+        st.subheader("🔁 闭环跟踪")
+        st.caption("缺陷复盘和专题复盘的闭环跟进")
+
+        # 创建子标签页
+        tracking_tabs = st.tabs(["🐛 缺陷复盘", "📋 专题复盘"])
+
+        # ========== 缺陷复盘 ==========
+        with tracking_tabs[0]:
+            st.markdown("#### 🐛 缺陷复盘（现网问题举一反三）")
+
+            # 从quality_improvement获取举一反三数据
+            qi_data = data.get('quality_improvement', {})
+            fanyi_data = qi_data.get('举一反三', {})
+            fanyi_items = fanyi_data.get('items', [])
+
+            if fanyi_items:
+                st.caption(f"共 {len(fanyi_items)} 条举一反三记录")
+
+                # 转换为DataFrame
+                fanyi_df = pd.DataFrame(fanyi_items)
+
+                # 确保所有列都存在
+                for col in ['defect_id', 'source', 'is_known_issue', 'test_team', 'issue_type', 'impact_level',
+                           'improvement_direction', 'action', 'scope', 'status', 'progress', 'owner', 'close_time']:
+                    if col not in fanyi_df.columns:
+                        fanyi_df[col] = ''
+
+                # 定义列配置
+                column_config = {
+                    'defect_id': st.column_config.TextColumn('缺陷ID', width='small'),
+                    'source': st.column_config.TextColumn('来源客户', width='medium'),
+                    'is_known_issue': st.column_config.SelectboxColumn('是否已知', options=['', '已知问题', '新问题'], width='small'),
+                    'test_team': st.column_config.SelectboxColumn('测试团队', options=['', '内核测试', '工具测试'], width='small'),
+                    'issue_type': st.column_config.SelectboxColumn('问题定性', options=['', '需求代码引入分析', '研发流程缺失', '不稳定特性', '其他因素'], width='medium'),
+                    'impact_level': st.column_config.SelectboxColumn('影响程度', options=['', '严重-急需输出高风险', '一般-风险可控', '暂未确定'], width='medium'),
+                    'improvement_direction': st.column_config.TextColumn('改进方向', width='medium'),
+                    'action': st.column_config.TextColumn('改进行动', width='large'),
+                    'scope': st.column_config.TextColumn('影响范围', width='medium'),
+                    'status': st.column_config.SelectboxColumn('状态', options=['进行中', '计划中', '已完成'], width='small'),
+                    'progress': st.column_config.NumberColumn('进度%', min_value=0, max_value=100, step=1, width='small'),
+                    'owner': st.column_config.TextColumn('负责人', width='small'),
+                    'close_time': st.column_config.TextColumn('预计闭环', width='small'),
+                }
+
+                # 使用data_editor支持编辑
+                edited_df = st.data_editor(
+                    fanyi_df,
+                    column_config=column_config,
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    hide_index=True,
+                    key="fanyi_tracking_editor"
+                )
+
+                # 保存按钮
+                col_save, col_stats = st.columns([1, 3])
+                with col_save:
+                    if st.button("💾 保存修改", type="primary", key="save_fanyi_tracking"):
+                        qi_data['举一反三']['items'] = edited_df.to_dict('records')
+                        st.session_state.data['quality_improvement'] = qi_data
+                        save_data_to_file(st.session_state.data)
+                        st.success("✅ 缺陷复盘数据已保存！")
+                        st.rerun()
+
+                with col_stats:
+                    # 统计信息
+                    total = len(fanyi_items)
+                    completed = len([i for i in fanyi_items if i.get('status') == '已完成'])
+                    in_progress = len([i for i in fanyi_items if i.get('status') == '进行中'])
+                    planned = len([i for i in fanyi_items if i.get('status') == '计划中'])
+
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("总任务", total)
+                    c2.metric("已完成", completed, f"{completed/total*100:.0f}%" if total > 0 else "0%")
+                    c3.metric("进行中", in_progress)
+                    c4.metric("计划中", planned)
+
+                # 按状态分布饼图
+                status_dist = {'已完成': completed, '进行中': in_progress, '计划中': planned}
+                status_dist = {k: v for k, v in status_dist.items() if v > 0}
+
+                if status_dist:
+                    fig_status = px.pie(
+                        values=list(status_dist.values()),
+                        names=list(status_dist.keys()),
+                        title="完成状态分布",
+                        color=list(status_dist.keys()),
+                        color_discrete_map={'已完成': '#28a745', '进行中': '#ffc107', '计划中': '#6c757d'}
+                    )
+                    fig_status.update_traces(textinfo='value+percent')
+                    fig_status.update_layout(height=250)
+                    st.plotly_chart(fig_status, use_container_width=True, key="fanyi_status_dist")
+
+            else:
+                st.info("暂无缺陷复盘数据")
+
+        # ========== 专题复盘 ==========
+        with tracking_tabs[1]:
+            st.markdown("#### 📋 专题复盘（事故复盘闭环跟进）")
+
+            # 从quality_work获取事故改进项数据
+            qw_data = data.get('quality_work', {})
+            accident_rate = qw_data.get('accident_rate', {})
+            accident_improvements = accident_rate.get('accident_improvements', [])
+
+            if accident_improvements:
+                st.caption(f"共 {len(accident_improvements)} 条事故复盘记录")
+
+                # 转换为DataFrame
+                df_improvements = pd.DataFrame(accident_improvements)
+
+                # 确保所有列都存在
+                for col in ['关联事故', '改进措施说明', '负责人', '预期闭环时间', '状态', '备注']:
+                    if col not in df_improvements.columns:
+                        df_improvements[col] = ''
+
+                # 计算进度
+                def status_to_progress(status):
+                    return {'未开始': 0, '进行中': 50, '已完成': 100, '已闭环': 100}.get(status, 0)
+
+                if '进度' not in df_improvements.columns:
+                    df_improvements['进度'] = df_improvements['状态'].apply(status_to_progress)
+
+                # 定义列配置
+                column_config = {
+                    '关联事故': st.column_config.TextColumn('关联事故', width='large'),
+                    '改进措施说明': st.column_config.TextColumn('改进措施', width='large'),
+                    '负责人': st.column_config.TextColumn('负责人', width='small'),
+                    '预期闭环时间': st.column_config.TextColumn('预期闭环', width='small'),
+                    '状态': st.column_config.SelectboxColumn('状态', options=['未开始', '进行中', '已完成', '已闭环'], width='small'),
+                    '进度': st.column_config.NumberColumn('进度%', min_value=0, max_value=100, step=1, width='small'),
+                    '备注': st.column_config.TextColumn('备注', width='medium'),
+                }
+
+                # 使用data_editor支持编辑
+                edited_df = st.data_editor(
+                    df_improvements,
+                    column_config=column_config,
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    hide_index=True,
+                    key="accident_tracking_editor"
+                )
+
+                # 保存按钮
+                col_save, col_stats = st.columns([1, 3])
+                with col_save:
+                    if st.button("💾 保存修改", type="primary", key="save_accident_tracking"):
+                        accident_rate['accident_improvements'] = edited_df.to_dict('records')
+                        st.session_state.data['quality_work']['accident_rate'] = accident_rate
+                        save_data_to_file(st.session_state.data)
+                        st.success("✅ 专题复盘数据已保存！")
+                        st.rerun()
+
+                with col_stats:
+                    # 统计信息
+                    total = len(accident_improvements)
+                    completed = len([i for i in accident_improvements if i.get('状态') in ['已完成', '已闭环']])
+                    in_progress = len([i for i in accident_improvements if i.get('状态') == '进行中'])
+                    not_started = len([i for i in accident_improvements if i.get('状态') == '未开始'])
+
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("总任务", total)
+                    c2.metric("已闭环", completed, f"{completed/total*100:.0f}%" if total > 0 else "0%")
+                    c3.metric("进行中", in_progress)
+                    c4.metric("未开始", not_started)
+
+                # 进度可视化
+                if edited_df is not None and not edited_df.empty:
+                    st.markdown("**复盘进度概览**")
+                    for idx, row in edited_df.iterrows():
+                        progress = row.get('进度', 0)
+                        status = row.get('状态', '未开始')
+                        accident = row.get('关联事故', '未知事故')[:30]
+
+                        col1, col2, col3 = st.columns([3, 1, 1])
+                        with col1:
+                            st.progress(progress / 100, text=f"{accident}...")
+                        with col2:
+                            st.caption(f"{progress}%")
+                        with col3:
+                            status_color = {'已完成': '🟢', '已闭环': '🟢', '进行中': '🟡', '未开始': '⚪'}
+                            st.write(f"{status_color.get(status, '⚪')} {status}")
+
+            else:
+                st.info("暂无专题复盘数据，请在【事故统计】标签页添加事故改进项")
+
+    # ==================== 保存/导出 ====================
+    with tabs[6]:
+        st.subheader("💾 保存/导出数据")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**保存到本地文件**")
+            if st.button("💾 保存所有数据", type="primary", use_container_width=True):
+                save_data_to_file(st.session_state.data)
+                st.success("✅ 数据已保存到 data/quality_data.json")
+
+        with col2:
+            st.markdown("**导出数据**")
+            # 导出为JSON
+            json_data = json.dumps(st.session_state.data, ensure_ascii=False, indent=2)
+            st.download_button(
+                label="📥 下载JSON",
+                data=json_data,
+                file_name=f"quality_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json",
+                use_container_width=True
+            )
+
+        st.divider()
+
+        # 数据预览
+        with st.expander("🔍 查看原始数据"):
+            st.json(st.session_state.data)
 

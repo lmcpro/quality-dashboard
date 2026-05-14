@@ -117,6 +117,65 @@ for customer in customers:
     # 从customer_accidents_count获取事故数
 ```
 
+## TOP质量事项进度跟踪设计
+
+### 合并表格设计
+
+1. **统一表格展示**
+   - 主项进度和子项进度合并到一个表格中
+   - 使用"类型"列区分：主项/子项
+   - 子项使用"子项名称"列标识具体内容
+
+2. **列定义**
+   - 类型：SelectboxColumn，选项['主项', '子项']
+   - 子项名称：TextColumn，主项为空，子项填写名称
+   - 日期：TextColumn，支持自动格式转换
+   - 进度：TextColumn，如 30%, 50%
+   - 状态说明：TextColumn，详细描述
+   - 下一步计划：TextColumn
+   - 登记人/负责人：TextColumn
+
+3. **数据存储结构**
+   - 显示时合并：`all_progress` 列表包含主项和子项
+   - 保存时拆分：根据"类型"列分别存入 `progress` 和 `sub_items`
+
+### 日期自动格式化
+
+```python
+def normalize_date(date_str):
+    """将各种日期格式统一转换为 YYYY-MM-DD"""
+    if not date_str or not isinstance(date_str, str):
+        return date_str
+    import re
+    date_str = date_str.strip()
+    # 匹配 MM/DD 或 M/D 格式
+    match = re.match(r'^(\d{1,2})/(\d{1,2})$', date_str)
+    if match:
+        month, day = match.groups()
+        return f"2026-{int(month):02d}-{int(day):02d}"
+    # 匹配 MM-DD 或 M-D 格式
+    match = re.match(r'^(\d{1,2})-(\d{1,2})$', date_str)
+    if match:
+        month, day = match.groups()
+        return f"2026-{int(month):02d}-{int(day):02d}"
+    # 匹配 YYYY-MM-DD 格式，将2024改为2026
+    if date_str.startswith('2024'):
+        return '2026' + date_str[4:]
+    return date_str
+```
+
+### TOP事项编号规则
+
+- 格式：TOP-001, TOP-002, TOP-003, TOP-004
+- 起始编号：从1开始（不是0）
+- 重新编号条件：仅在ID缺失或重复时执行，避免每次加载都重新分配
+- 排除项："事故复盘闭环跟进" 已从TOP事项中移除，改为独立模块
+
+### TOP3名称修正
+
+- 原名：产品需求边界清晰化评估
+- 修正为：需求交付质量标准
+
 ## 事故级别定义
 
 - **P1**: 紧急事故
